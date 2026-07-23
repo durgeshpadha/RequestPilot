@@ -1,3 +1,3 @@
-// No sample data — extension starts empty.
-// This file is kept as a placeholder so existing imports don't break.
+// RequestPilot starts empty. User-specific rules and environments can be
+// restored through Import / Export without embedding private configuration.
 export {};

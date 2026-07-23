@@ -282,6 +282,7 @@ function buildPage(pageId: PageId): HTMLElement {
       type: ruleType,
       rules,
       environment: activeEnv,
+      environments,
       onSave: async (rule) => {
         await storageService.saveRule(rule);
         rules = await storageService.getRules();

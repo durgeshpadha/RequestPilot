@@ -25,6 +25,7 @@ import type {
   HttpMethod,
 } from '../models/types.js';
 import { validateRule } from '../validation/schema.js';
+import { ruleAppliesToEnvironment } from '../utils/ruleMatcher.js';
 
 // ============================================================
 // Constants
@@ -335,6 +336,7 @@ export function buildDnrRules(
 
   for (const rule of rules) {
     if (!rule.enabled) continue;
+    if (!ruleAppliesToEnvironment(rule, env)) continue;
     if (!validateRule(rule).valid) continue;
     const id = allocateDnrId(rule.id, usedIds);
 
@@ -385,9 +387,10 @@ export async function applyDnrRules(
     const validRules: AnyRule[] = [];
     for (const rule of rules) {
       if (!rule.enabled || rule.type === 'mock' || rule.type === 'responseOverride') {
-        validRules.push(rule);
+        if (ruleAppliesToEnvironment(rule, env)) validRules.push(rule);
         continue;
       }
+      if (!ruleAppliesToEnvironment(rule, env)) continue;
       const validation = validateRule(rule);
       if (!validation.valid) {
         errors.push(`${rule.name}: ${validation.errors.join(' ')}`);

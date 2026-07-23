@@ -119,3 +119,34 @@ test('import validation rejects duplicate IDs and malformed environments', () =>
   assert.equal(result.valid, false);
   assert.match(result.errors.join(' '), /duplicate/i);
 });
+
+test('rules apply only in their selected environments', () => {
+  const development = {
+    id: 'environment-development',
+    name: 'Development',
+    variables: [{ key: 'ROUTING_VALUE', value: 'development' }],
+    isActive: true,
+  };
+  const production = {
+    id: 'environment-production',
+    name: 'Production',
+    variables: [{ key: 'ROUTING_VALUE', value: 'production' }],
+    isActive: false,
+  };
+  const rule = {
+    ...base,
+    id: 'environment-specific-rule',
+    type: 'header',
+    target: 'request',
+    environmentIds: [development.id],
+    headers: [{ name: 'X-Routing-Value', value: '{{ROUTING_VALUE}}', operation: 'set' }],
+  };
+
+  assert.equal(buildDnrRules([rule], null).length, 0);
+  assert.equal(buildDnrRules([rule], production).length, 0);
+  assert.equal(buildDnrRules([rule], development).length, 1);
+  assert.equal(
+    buildDnrRules([rule], development)[0].action.requestHeaders[0].value,
+    'development'
+  );
+});

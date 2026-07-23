@@ -60,6 +60,8 @@ export interface BaseRule {
   description?: string;
   group?: string;
   tags?: string[];
+  /** Empty/undefined means every environment. */
+  environmentIds?: string[];
   priority: number;
   usageCount?: number;
 }

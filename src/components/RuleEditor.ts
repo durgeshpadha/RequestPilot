@@ -1,7 +1,7 @@
 import type { AnyRule, HeaderRule, RedirectRule, QueryParamRule, MockApiRule, CookieRule, HeaderOperation, QueryParamOperation, CookieOperation, RuleType, Environment } from '../models/types.js';
 import { Icons } from '../utils/icons.js';
 import { escapeHtml, generateId, resolveVariables, findUnresolvedVariables, COMMON_HEADERS } from '../utils/helpers.js';
-import { matchesUrlPattern } from '../utils/ruleMatcher.js';
+import { matchesUrlPattern, ruleAppliesToEnvironment } from '../utils/ruleMatcher.js';
 import { validateRule } from '../validation/schema.js';
 import { toast } from './Toast.js';
 import { showConfirm } from './Modal.js';
@@ -12,6 +12,7 @@ interface EditorOptions {
   rule?: AnyRule;
   type?: RuleType;
   environment: Environment | null;
+  environments: Environment[];
   onSave: SaveCallback;
 }
 
@@ -107,6 +108,7 @@ export class RuleEditor {
     const group = escapeHtml(r?.group ?? '');
     const tags = escapeHtml(r?.tags?.join(', ') ?? '');
     const priority = r?.priority ?? 1;
+    const appliesEverywhere = !r?.environmentIds?.length;
     const urlPattern = (r as HeaderRule)?.urlMatcher?.pattern ?? '';
     const escapedUrlPattern = escapeHtml(urlPattern);
     const isRegex = (r as HeaderRule)?.urlMatcher?.isRegex ?? false;
@@ -150,6 +152,22 @@ export class RuleEditor {
               </div>
               <span>Rule Enabled</span>
             </label>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Applies to environments</label>
+            <div class="filter-chip-grid">
+              <label class="filter-chip">
+                <input type="checkbox" id="rule-env-all" ${appliesEverywhere ? 'checked' : ''}/>
+                <span>All environments</span>
+              </label>
+              ${this.options.environments.map((environment) => `
+                <label class="filter-chip">
+                  <input type="checkbox" name="rule-environment" value="${escapeHtml(environment.id)}"
+                    ${r?.environmentIds?.includes(environment.id) ? 'checked' : ''}/>
+                  <span>${escapeHtml(environment.name)}</span>
+                </label>`).join('')}
+            </div>
+            <div class="input-hint">Choose specific environments, or leave “All environments” selected.</div>
           </div>
         </div>
         <div class="form-section">
@@ -504,6 +522,29 @@ export class RuleEditor {
     wireExclusiveAll('rule-method');
     wireExclusiveAll('rule-resource');
 
+    const allEnvironments = this.drawer.querySelector<HTMLInputElement>('#rule-env-all');
+    const environmentControls = Array.from(
+      this.drawer.querySelectorAll<HTMLInputElement>('[name="rule-environment"]')
+    );
+    allEnvironments?.addEventListener('change', () => {
+      if (allEnvironments.checked) {
+        environmentControls.forEach((control) => { control.checked = false; });
+      } else if (!environmentControls.some((control) => control.checked)) {
+        allEnvironments.checked = true;
+      }
+    });
+    environmentControls.forEach((control) => {
+      control.addEventListener('change', () => {
+        if (control.checked && allEnvironments) allEnvironments.checked = false;
+        if (
+          !environmentControls.some((candidate) => candidate.checked) &&
+          allEnvironments
+        ) {
+          allEnvironments.checked = true;
+        }
+      });
+    });
+
     this.drawer.querySelector('#btn-test-rule')?.addEventListener('click', () => {
       const testUrl = this.getFormValue('rule-test-url');
       const result = this.drawer.querySelector('#rule-test-result') as HTMLElement | null;
@@ -623,6 +664,9 @@ export class RuleEditor {
         .map((tag) => tag.trim())
         .filter(Boolean)
         .slice(0, 10),
+      environmentIds: this.getChecked('rule-env-all')
+        ? undefined
+        : this.getCheckedValues('rule-environment'),
       createdAt: this.options.rule?.createdAt ?? now,
       updatedAt: now,
       urlMatcher: {
@@ -666,7 +710,11 @@ export class RuleEditor {
       return;
     }
     const unresolved = findUnresolvedVariables(JSON.stringify(rule), this.options.environment);
-    if (rule.enabled && unresolved.length) {
+    if (
+      rule.enabled &&
+      ruleAppliesToEnvironment(rule, this.options.environment) &&
+      unresolved.length
+    ) {
       toast.error(
         'Enabled rule has unresolved variables',
         `Define ${Array.from(new Set(unresolved)).join(', ')} in the active environment or save the rule disabled.`

@@ -291,6 +291,7 @@ const SECTION_ENVIRONMENTS = `
     ${step(1, 'Go to Environments in the sidebar', 'Create an environment (e.g. Development) and add variables like BASE_URL and AUTH_TOKEN.')}
     ${step(2, 'Set the environment as Active', 'Click "Set Active" on the environment. Only one environment is active at a time.')}
     ${step(3, 'Use {{KEY}} in rule fields', 'In any rule\'s URL, header value, or destination URL, type {{BASE_URL}} or {{AUTH_TOKEN}}. The extension resolves the value automatically.')}
+    ${step(4, 'Choose where the rule applies', 'Use “Applies to environments” in the rule editor to target all environments or only selected ones.')}
   </div>
   ${example('Environment variables', Icons.environment({ size: 12 }), `Environment: Development
   BASE_URL   = https://api.dev.example.com
@@ -305,7 +306,7 @@ Resolved at runtime:
 Match URL : https://api.dev.example.com/v2/*
 Value     : Bearer dev-token-abc123`)}
   ${callout('tip', Icons.info({ size: 16 }), 'Switch from Development to Production in one click. All rules using {{BASE_URL}} immediately resolve to the production URL — no rule editing needed.')}
-  ${callout('warn', Icons.alertTriangle({ size: 16 }), `If a ${c('{{KEY}}')} placeholder is used but no matching variable exists in the active environment, the literal text ${c('{{KEY}}')} is sent as-is. The rule editor shows a warning for unresolved variables.`)}
+  ${callout('warn', Icons.alertTriangle({ size: 16 }), `If a ${c('{{KEY}}')} placeholder has no value in an environment where the rule applies, RequestPilot skips that rule and reports an unresolved-variable warning.`)}
 </section>`;
 
 const SECTION_URL_PATTERNS = `

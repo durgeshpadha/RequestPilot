@@ -110,6 +110,13 @@ export function validateRule(rule: unknown): ValidationResult {
   ) {
     errors.push('Rule tags must be non-empty text values.');
   }
+  if (
+    rule.environmentIds !== undefined &&
+    (!Array.isArray(rule.environmentIds) ||
+      rule.environmentIds.some((id) => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
+  ) {
+    errors.push('Rule environment restrictions contain an invalid environment ID.');
+  }
   if (!Number.isInteger(rule.priority) || Number(rule.priority) < 1 || Number(rule.priority) > 999) {
     errors.push('Priority must be an integer from 1 to 999.');
   }
@@ -335,6 +342,18 @@ export function validateExportSchema(value: unknown): ValidationResult {
     });
     const activeCount = (value.environments as Environment[]).filter((environment) => environment.isActive).length;
     if (activeCount > 1) errors.push('Only one imported environment can be active.');
+    if (Array.isArray(value.rules)) {
+      value.rules.forEach((rule, ruleIndex) => {
+        if (!isRecord(rule) || !Array.isArray(rule.environmentIds)) return;
+        rule.environmentIds.forEach((environmentId) => {
+          if (typeof environmentId === 'string' && !environmentIds.has(environmentId)) {
+            errors.push(
+              `Rule ${ruleIndex + 1} references missing environment ID "${environmentId}".`
+            );
+          }
+        });
+      });
+    }
   }
   return { valid: errors.length === 0, errors };
 }

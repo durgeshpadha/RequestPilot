@@ -5,6 +5,7 @@
     name: string;
     enabled: boolean;
     priority: number;
+    environmentIds?: string[];
     urlMatcher: {
       pattern: string;
       isRegex: boolean;
@@ -19,6 +20,7 @@
   }
 
   interface StoredEnvironment {
+    id: string;
     isActive: boolean;
     variables: Array<{ key: string; value: string }>;
   }
@@ -41,7 +43,11 @@
     const environments = (local.requestpilot_environments as StoredEnvironment[] | undefined) ?? [];
     const environment = environments.find((candidate) => candidate.isActive);
     const rules = ((local.requestpilot_rules as BridgeRule[] | undefined) ?? [])
-      .filter((rule) => rule.enabled && (rule.type === 'mock' || rule.type === 'responseOverride'))
+      .filter((rule) =>
+        rule.enabled &&
+        (rule.type === 'mock' || rule.type === 'responseOverride') &&
+        (!rule.environmentIds?.length || Boolean(environment && rule.environmentIds.includes(environment.id)))
+      )
       .map((rule) => ({
         ...rule,
         urlMatcher: {

@@ -1,6 +1,6 @@
 {
   "name": "requestpilot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Microsoft Edge extension for modifying HTTP requests and responses",
   "scripts": {

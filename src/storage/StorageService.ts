@@ -6,7 +6,7 @@ import { asExportSchema } from '../validation/schema.js';
 // Default Settings — used on first install and after reset
 // ============================================================
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',

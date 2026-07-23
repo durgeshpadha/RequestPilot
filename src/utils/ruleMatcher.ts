@@ -1,5 +1,13 @@
 import type { AnyRule, Environment, ResourceType } from '../models/types.js';
 
+export function ruleAppliesToEnvironment(
+  rule: Pick<AnyRule, 'environmentIds'>,
+  environment: Environment | null
+): boolean {
+  if (!rule.environmentIds?.length) return true;
+  return Boolean(environment && rule.environmentIds.includes(environment.id));
+}
+
 export function resolveRuleVariables(text: string, environment: Environment | null): string {
   if (!environment || !text) return text;
   return text.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
@@ -50,6 +58,7 @@ export function ruleMatchesRequest(
   request: { url: string; method: string; resourceType?: string },
   environment: Environment | null
 ): boolean {
+  if (!ruleAppliesToEnvironment(rule, environment)) return false;
   const matcher = rule.urlMatcher;
   const pattern = resolveRuleVariables(matcher.pattern, environment);
   if (!matchesUrlPattern(pattern, matcher.isRegex, request.url)) return false;

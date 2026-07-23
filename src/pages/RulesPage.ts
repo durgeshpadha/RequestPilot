@@ -10,6 +10,7 @@ interface RulesPageOptions {
   type: RuleType;
   rules: AnyRule[];
   environment: Environment | null;
+  environments: Environment[];
   onSave: (rule: AnyRule) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
@@ -103,15 +104,15 @@ function buildPageContent(opts: RulesPageOptions): string {
     </div>
 
     <!-- Rules List -->
-    <div id="rules-list">${filtered.length ? renderRuleCards(filtered, type) : renderEmptyState(type, false)}</div>
+    <div id="rules-list">${filtered.length ? renderRuleCards(filtered, type, opts.environments) : renderEmptyState(type, false)}</div>
   `;
 }
 
-function renderRuleCards(rules: AnyRule[], type: RuleType): string {
-  return `<div style="display:flex;flex-direction:column;gap:var(--space-3)">${rules.map((r) => renderRuleCard(r, type)).join('')}</div>`;
+function renderRuleCards(rules: AnyRule[], type: RuleType, environments: Environment[]): string {
+  return `<div style="display:flex;flex-direction:column;gap:var(--space-3)">${rules.map((r) => renderRuleCard(r, type, environments)).join('')}</div>`;
 }
 
-function renderRuleCard(r: AnyRule, _type: RuleType): string {
+function renderRuleCard(r: AnyRule, _type: RuleType, environments: Environment[]): string {
   const meta = getRuleMeta(r);
   const validation = validateRule(r);
   return `
@@ -133,6 +134,13 @@ function renderRuleCard(r: AnyRule, _type: RuleType): string {
           ${meta.badges}
           ${r.group ? `<span class="badge badge-gray">${escapeHtml(r.group)}</span>` : ''}
           ${(r.tags ?? []).map((tag) => `<span class="badge badge-gray">#${escapeHtml(tag)}</span>`).join('')}
+          ${r.environmentIds?.length
+            ? `<span class="badge badge-gray">${escapeHtml(
+                r.environmentIds
+                  .map((id) => environments.find((environment) => environment.id === id)?.name ?? id)
+                  .join(' / ')
+              )}</span>`
+            : '<span class="badge badge-gray">All environments</span>'}
           <span style="font-size:var(--text-xs);color:var(--color-text-tertiary)">Priority ${r.priority}</span>
         </div>
         <div class="rule-card-url">${Icons.globe({ size: 11 })} <span>${escapeHtml((r as { urlMatcher?: { pattern?: string } }).urlMatcher?.pattern ?? '')}</span></div>
@@ -226,7 +234,7 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
 
     const list = el.querySelector('#rules-list');
     if (list) {
-      list.innerHTML = filtered.length ? renderRuleCards(filtered, opts.type) : renderEmptyState(opts.type, !!(search || statusFilter || targetFilter));
+      list.innerHTML = filtered.length ? renderRuleCards(filtered, opts.type, opts.environments) : renderEmptyState(opts.type, !!(search || statusFilter || targetFilter));
       attachListEvents(el, opts, rerender, currentRules);
     }
   };
@@ -236,6 +244,7 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
       rule,
       type: opts.type,
       environment: opts.environment,
+      environments: opts.environments,
       onSave: async (saved) => {
         await opts.onSave(saved);
         const idx = currentRules.findIndex((r) => r.id === saved.id);
