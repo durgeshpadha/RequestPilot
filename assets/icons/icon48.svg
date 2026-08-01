@@ -1,6 +1,3 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
-  <rect width="48" height="48" rx="10" fill="#2563eb"/>
-  <path d="M12 13.919999999999998 L24 8.16 L36 13.919999999999998 L36 24 L24 29.759999999999998 L12 24Z" fill="none" stroke="white" stroke-width="2.88" stroke-linejoin="round"/>
-  <path d="M12 29.759999999999998 L24 35.519999999999996 L36 29.759999999999998" fill="none" stroke="white" stroke-width="2.88" stroke-linejoin="round"/>
-  <path d="M12 24 L24 29.759999999999998 L36 24" fill="none" stroke="white" stroke-width="2.88" stroke-linejoin="round"/>
+  <image href="../logo/request_pilot_logo.png" width="48" height="48" preserveAspectRatio="xMidYMid meet"/>
 </svg>

@@ -62,8 +62,13 @@ export class RuleEditor {
 
     this.drawer.innerHTML = this.buildHtml(ruleType, rule, environment);
     this.attachEvents(ruleType, isEdit);
-    this.drawer.addEventListener('input', () => { this.dirty = true; });
-    this.drawer.addEventListener('change', () => { this.dirty = true; });
+    const markDirty = (event: Event) => {
+      if (!(event.target as HTMLElement | null)?.closest('[data-utility]')) {
+        this.dirty = true;
+      }
+    };
+    this.drawer.addEventListener('input', markDirty);
+    this.drawer.addEventListener('change', markDirty);
 
     requestAnimationFrame(() => {
       this.overlay.classList.add('open');
@@ -154,7 +159,7 @@ export class RuleEditor {
             </label>
           </div>
           <div class="input-group">
-            <label class="input-label">Applies to environments</label>
+            <label class="input-label">Use this ${type === 'header' ? 'header' : 'rule'} in</label>
             <div class="filter-chip-grid">
               <label class="filter-chip">
                 <input type="checkbox" id="rule-env-all" ${appliesEverywhere ? 'checked' : ''}/>
@@ -167,7 +172,11 @@ export class RuleEditor {
                   <span>${escapeHtml(environment.name)}</span>
                 </label>`).join('')}
             </div>
-            <div class="input-hint">Choose specific environments, or leave “All environments” selected.</div>
+            <div class="input-hint">
+              ${type === 'header'
+                ? 'The header is applied only while one of the selected environments is active.'
+                : 'The rule is applied only while one of the selected environments is active.'}
+            </div>
           </div>
         </div>
         <div class="form-section">
@@ -183,12 +192,41 @@ export class RuleEditor {
             Use Regular Expression
           </label>
           ${this.buildRequestFilters(rule, type)}
+          <div class="test-rule-panel" data-utility>
+            <div class="input-group">
+              <label class="input-label" for="regex-check-pattern">Regex Checker</label>
+              <input
+                id="regex-check-pattern"
+                class="input"
+                type="text"
+                placeholder="^https://api\\.example\\.com/.*$ or /example/i"
+                value="${isRegex ? escapedUrlPattern : ''}"
+                autocomplete="off"
+              />
+            </div>
+            <div class="input-group" style="margin-bottom:0">
+              <label class="input-label" for="regex-check-value">Value to test</label>
+              <div style="display:flex;gap:var(--space-2)">
+                <input
+                  id="regex-check-value"
+                  class="input"
+                  type="text"
+                  placeholder="https://api.example.com/users"
+                  autocomplete="off"
+                />
+                <button type="button" class="btn btn-secondary" id="btn-check-regex">Check</button>
+              </div>
+              <div class="input-hint" id="regex-check-result" aria-live="polite">
+                Enter a regular expression and a value to test.
+              </div>
+            </div>
+          </div>
           <div class="test-rule-panel">
             <div class="input-group">
               <label class="input-label" for="rule-test-url">Test this matcher</label>
               <div style="display:flex;gap:var(--space-2)">
-                <input id="rule-test-url" class="input" type="url" placeholder="https://api.example.com/users" />
-                <select id="rule-test-method" class="select" style="width:100px">
+                <input id="rule-test-url" class="input" data-utility type="url" placeholder="https://api.example.com/users" />
+                <select id="rule-test-method" class="select" data-utility style="width:100px">
                   ${['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((method) => `<option>${method}</option>`).join('')}
                 </select>
                 <button type="button" class="btn btn-secondary" id="btn-test-rule">Test</button>
@@ -541,6 +579,59 @@ export class RuleEditor {
           allEnvironments
         ) {
           allEnvironments.checked = true;
+        }
+      });
+    });
+
+    const checkRegex = () => {
+      const patternInput = this.drawer.querySelector<HTMLInputElement>('#regex-check-pattern');
+      const valueInput = this.drawer.querySelector<HTMLInputElement>('#regex-check-value');
+      const result = this.drawer.querySelector<HTMLElement>('#regex-check-result');
+      if (!patternInput || !valueInput || !result) return;
+
+      const pattern = patternInput.value.trim();
+      const value = valueInput.value;
+      if (!pattern) {
+        result.textContent = 'Enter a regular expression first.';
+        result.style.color = 'var(--color-warning)';
+        return;
+      }
+      if (!value) {
+        result.textContent = 'Enter a value to test.';
+        result.style.color = 'var(--color-warning)';
+        return;
+      }
+
+      try {
+        let expression: RegExp;
+        if (pattern.startsWith('/')) {
+          const closingSlash = pattern.lastIndexOf('/');
+          if (closingSlash <= 0) throw new Error('Missing closing slash.');
+          expression = new RegExp(
+            pattern.slice(1, closingSlash),
+            pattern.slice(closingSlash + 1)
+          );
+        } else {
+          expression = new RegExp(pattern);
+        }
+        const passed = expression.test(value);
+        result.textContent = passed
+          ? 'Passed: the value matches this regular expression.'
+          : 'Failed: the value does not match this regular expression.';
+        result.style.color = passed ? 'var(--color-success)' : 'var(--color-error)';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result.textContent = `Invalid regular expression: ${message}`;
+        result.style.color = 'var(--color-error)';
+      }
+    };
+
+    this.drawer.querySelector('#btn-check-regex')?.addEventListener('click', checkRegex);
+    this.drawer.querySelectorAll('#regex-check-pattern, #regex-check-value').forEach((input) => {
+      input.addEventListener('keydown', (event) => {
+        if ((event as KeyboardEvent).key === 'Enter') {
+          event.preventDefault();
+          checkRegex();
         }
       });
     });

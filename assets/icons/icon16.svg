@@ -1,6 +1,3 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <rect width="16" height="16" rx="3" fill="#2563eb"/>
-  <path d="M4 4.64 L8 2.72 L12 4.64 L12 8 L8 9.92 L4 8Z" fill="none" stroke="white" stroke-width="1" stroke-linejoin="round"/>
-  <path d="M4 9.92 L8 11.84 L12 9.92" fill="none" stroke="white" stroke-width="1" stroke-linejoin="round"/>
-  <path d="M4 8 L8 9.92 L12 8" fill="none" stroke="white" stroke-width="1" stroke-linejoin="round"/>
+  <image href="../logo/request_pilot_logo.png" width="16" height="16" preserveAspectRatio="xMidYMid meet"/>
 </svg>

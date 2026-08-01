@@ -87,6 +87,13 @@ function buildPageContent(opts: RulesPageOptions): string {
             <option value="">All Targets</option>
             <option value="request">Request</option>
             <option value="response">Response</option>
+          </select>
+          <select class="select" id="filter-environment" style="width:170px">
+            <option value="">All Environments</option>
+            ${opts.environments.map((environment) => `
+              <option value="${escapeHtml(environment.id)}">
+                ${escapeHtml(environment.name)}${environment.isActive ? ' (Active)' : ''}
+              </option>`).join('')}
           </select>` : ''}
       </div>
       <div class="toolbar-right">
@@ -115,6 +122,10 @@ function renderRuleCards(rules: AnyRule[], type: RuleType, environments: Environ
 function renderRuleCard(r: AnyRule, _type: RuleType, environments: Environment[]): string {
   const meta = getRuleMeta(r);
   const validation = validateRule(r);
+  const activeEnvironment = environments.find((environment) => environment.isActive) ?? null;
+  const appliesNow =
+    !r.environmentIds?.length ||
+    Boolean(activeEnvironment && r.environmentIds.includes(activeEnvironment.id));
   return `
     <div class="rule-card ${r.enabled ? '' : 'disabled'}" data-rule-id="${escapeHtml(r.id)}">
       <div class="rule-card-left">
@@ -141,6 +152,13 @@ function renderRuleCard(r: AnyRule, _type: RuleType, environments: Environment[]
                   .join(' / ')
               )}</span>`
             : '<span class="badge badge-gray">All environments</span>'}
+          ${activeEnvironment
+            ? `<span class="badge ${appliesNow ? 'badge-green' : 'badge-gray'}">
+                ${appliesNow ? 'Active now' : `Inactive in ${escapeHtml(activeEnvironment.name)}`}
+              </span>`
+            : r.environmentIds?.length
+              ? '<span class="badge badge-amber">Inactive: no active environment</span>'
+              : '<span class="badge badge-green">Active in all environments</span>'}
           <span style="font-size:var(--text-xs);color:var(--color-text-tertiary)">Priority ${r.priority}</span>
         </div>
         <div class="rule-card-url">${Icons.globe({ size: 11 })} <span>${escapeHtml((r as { urlMatcher?: { pattern?: string } }).urlMatcher?.pattern ?? '')}</span></div>
@@ -209,6 +227,7 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
     const search = (el.querySelector('#search-input') as HTMLInputElement)?.value?.toLowerCase() ?? '';
     const statusFilter = (el.querySelector('#filter-status') as HTMLSelectElement)?.value ?? '';
     const targetFilter = (el.querySelector('#filter-target') as HTMLSelectElement)?.value ?? '';
+    const environmentFilter = (el.querySelector('#filter-environment') as HTMLSelectElement)?.value ?? '';
     const sort = (el.querySelector('#sort-select') as HTMLSelectElement)?.value ?? 'name-asc';
 
     let filtered = currentRules;
@@ -221,6 +240,11 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
     if (statusFilter === 'enabled') filtered = filtered.filter((r) => r.enabled);
     if (statusFilter === 'disabled') filtered = filtered.filter((r) => !r.enabled);
     if (targetFilter) filtered = filtered.filter((r) => r.type === 'header' && r.target === targetFilter);
+    if (environmentFilter) {
+      filtered = filtered.filter((r) =>
+        !r.environmentIds?.length || r.environmentIds.includes(environmentFilter)
+      );
+    }
 
     filtered = [...filtered].sort((a, b) => {
       if (sort === 'name-asc')      return a.name.localeCompare(b.name);
@@ -234,7 +258,9 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
 
     const list = el.querySelector('#rules-list');
     if (list) {
-      list.innerHTML = filtered.length ? renderRuleCards(filtered, opts.type, opts.environments) : renderEmptyState(opts.type, !!(search || statusFilter || targetFilter));
+      list.innerHTML = filtered.length
+        ? renderRuleCards(filtered, opts.type, opts.environments)
+        : renderEmptyState(opts.type, !!(search || statusFilter || targetFilter || environmentFilter));
       attachListEvents(el, opts, rerender, currentRules);
     }
   };
@@ -259,6 +285,7 @@ function attachEvents(el: HTMLElement, opts: RulesPageOptions): (rule?: AnyRule)
   el.querySelector('#search-input')?.addEventListener('input', debounce(rerender, 200) as EventListener);
   el.querySelector('#filter-status')?.addEventListener('change', rerender);
   el.querySelector('#filter-target')?.addEventListener('change', rerender);
+  el.querySelector('#filter-environment')?.addEventListener('change', rerender);
   el.querySelector('#sort-select')?.addEventListener('change', rerender);
   el.querySelector('#bulk-enable')?.addEventListener('click', async () => {
     await opts.onBulkToggle(true);
@@ -291,6 +318,10 @@ function attachListEvents(el: HTMLElement, opts: RulesPageOptions, rerender: () 
   el.querySelector('#clear-filters-btn')?.addEventListener('click', () => {
     (el.querySelector('#search-input') as HTMLInputElement).value = '';
     (el.querySelector('#filter-status') as HTMLSelectElement).value = '';
+    const targetFilter = el.querySelector('#filter-target') as HTMLSelectElement | null;
+    const environmentFilter = el.querySelector('#filter-environment') as HTMLSelectElement | null;
+    if (targetFilter) targetFilter.value = '';
+    if (environmentFilter) environmentFilter.value = '';
     rerender();
   });
 

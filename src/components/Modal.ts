@@ -110,11 +110,15 @@ export function showPrompt(
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-labelledby', 'prompt-title');
     overlay.innerHTML = `
-      <div class="modal" role="document">
+      <div class="modal prompt-modal" role="document">
         <h2 class="modal-title" id="prompt-title">${escapeHtml(title)}</h2>
-        <label class="input-label" for="prompt-input">${escapeHtml(label)}</label>
-        <input class="input" id="prompt-input" maxlength="80" value="${escapeHtml(initialValue)}" />
-        <div class="input-error-msg" id="prompt-error" style="display:none">A value is required.</div>
+        <div class="input-group">
+          <label class="input-label" for="prompt-input">${escapeHtml(label)}</label>
+          <input class="input" id="prompt-input" maxlength="80" value="${escapeHtml(initialValue)}" />
+          <div class="input-error-msg" id="prompt-error" role="alert" style="display:none">
+            A value is required.
+          </div>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" data-action="cancel">Cancel</button>
           <button class="btn btn-primary" data-action="confirm">Save</button>

@@ -7,8 +7,12 @@ import type { AnyRule, Environment, Settings } from '../models/types.js';
 let cachedRules: AnyRule[] = [];
 let cachedEnvironment: Environment | null = null;
 let cachedSettings: Settings | null = null;
+let ruleSyncQueue: Promise<{ applied: number; errors: string[] }> = Promise.resolve({
+  applied: 0,
+  errors: [],
+});
 
-async function syncRules(): Promise<{ applied: number; errors: string[] }> {
+async function performRuleSync(): Promise<{ applied: number; errors: string[] }> {
   try {
     const [rules, settings, activeEnvironment] = await Promise.all([
       storageService.getRules(),
@@ -28,6 +32,14 @@ async function syncRules(): Promise<{ applied: number; errors: string[] }> {
     console.error('[RequestPilot] Rule synchronization failed:', error);
     return { applied: 0, errors: [message] };
   }
+}
+
+function syncRules(): Promise<{ applied: number; errors: string[] }> {
+  // Saving settings emits storage.onChanged while popup/options handlers may
+  // request an immediate sync as well. Serialize both paths so two refreshes
+  // cannot remove/add the same dynamic rule IDs concurrently.
+  ruleSyncQueue = ruleSyncQueue.then(performRuleSync, performRuleSync);
+  return ruleSyncQueue;
 }
 
 async function activateDefaultEnvironment(): Promise<void> {

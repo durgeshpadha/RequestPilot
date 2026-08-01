@@ -207,13 +207,44 @@ export class StorageService {
 
   async deleteEnvironment(id: string): Promise<void> {
     await this.maybeAutoBackup();
-    let envs = await this.getEnvironments();
+    const [storedEnvironments, rules, settings] = await Promise.all([
+      this.getEnvironments(),
+      this.getRules(),
+      this.getSettings(),
+    ]);
+    let envs = storedEnvironments;
     const wasActive = envs.find((e) => e.id === id)?.isActive ?? false;
     envs = envs.filter((e) => e.id !== id);
     if (wasActive && envs.length > 0) {
       envs[0].isActive = true;
     }
-    await chrome.storage.local.set({ [STORAGE_KEYS.ENVIRONMENTS]: envs });
+
+    const now = new Date().toISOString();
+    const updatedRules = rules.map((rule) => {
+      if (!rule.environmentIds?.includes(id)) return rule;
+      const remainingEnvironmentIds = rule.environmentIds.filter(
+        (environmentId) => environmentId !== id
+      );
+      return {
+        ...rule,
+        // Never broaden a rule to every environment when its only target is deleted.
+        enabled: remainingEnvironmentIds.length ? rule.enabled : false,
+        environmentIds: remainingEnvironmentIds.length
+          ? remainingEnvironmentIds
+          : undefined,
+        updatedAt: now,
+      } as AnyRule;
+    });
+
+    await Promise.all([
+      chrome.storage.local.set({ [STORAGE_KEYS.ENVIRONMENTS]: envs }),
+      this.writeRules(updatedRules),
+      settings.defaultEnvironmentId === id
+        ? chrome.storage.sync.set({
+            [STORAGE_KEYS.SETTINGS]: { ...settings, defaultEnvironmentId: null },
+          })
+        : Promise.resolve(),
+    ]);
   }
 
   async setActiveEnvironment(id: string, createBackup = true): Promise<void> {
