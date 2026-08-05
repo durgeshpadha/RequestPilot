@@ -30,7 +30,7 @@ Exported JSON files are created only after a user action and remain under the us
 
 ## Security
 
-Extension API access remains in isolated extension contexts. The main-world script used for fetch/XMLHttpRequest mocking receives only the enabled mock and response-override configuration needed on that page.
+Extension API access and complete rule configuration remain in isolated extension contexts. The main-world script used for fetch/XMLHttpRequest mocking submits one concrete URL/method check at a time and receives response data only when that request matches an enabled mock or response-override rule.
 
 ## Contact
 

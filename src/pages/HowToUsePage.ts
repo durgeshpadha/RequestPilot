@@ -116,11 +116,11 @@ const SECTION_OVERVIEW = `
       <div class="limitation-card-title">${Icons.xCircle({ size: 15 })} Current limitations</div>
       <ul>
         <li>Cannot intercept requests made by extension pages</li>
-        <li>Mock API intercepts ${c('fetch')} + ${c('XHR')} only — not WebSocket or SSE</li>
+        <li>Mock API intercepts ${c('fetch')} + asynchronous ${c('XHR')} only — not synchronous XHR, WebSocket, or SSE</li>
         <li>Removing a single cookie removes the entire Cookie header</li>
         <li>Rules don't sync across browser profiles</li>
         <li>History is local to this device only</li>
-        <li>${c('declarativeNetRequest')} has a 30 000 dynamic rule limit</li>
+        <li>RequestPilot supports up to 5 000 browser-network rules, including up to 1 000 regular-expression rules</li>
       </ul>
     </div>
   </div>
@@ -236,7 +236,7 @@ Delay         : 300`)}
   ${example('What the page sees', Icons.activity({ size: 12 }), `fetch('https://api.example.com/auth/login', { method: 'POST', ... })
   .then(r => r.json())  // → { token: 'mock-jwt-token-xyz', user: { ... } }
   // Real server was never contacted. Response arrived in 300ms.`)}
-  ${callout('warn', Icons.alertTriangle({ size: 16 }), `<strong>Important:</strong> Mock API only intercepts ${c('fetch')} and ${c('XMLHttpRequest')} made by page scripts. It does not intercept WebSocket connections, Server-Sent Events, or requests made by browser extensions. The page must be loaded <em>after</em> the rule is enabled — already-open tabs are covered once they make their next request.`)}
+  ${callout('warn', Icons.alertTriangle({ size: 16 }), `<strong>Important:</strong> Mock API only intercepts ${c('fetch')} and asynchronous ${c('XMLHttpRequest')} made by page scripts. It does not intercept synchronous XHR, WebSocket connections, Server-Sent Events, or requests made by browser extensions. The page must be loaded <em>after</em> the extension is installed — rule changes then apply to the next request.`)}
   <h3 class="htu-h3">Example — Simulate a 429 rate-limit error</h3>
   ${example('Rule configuration', Icons.edit({ size: 12 }), `Match URL     : https://api.example.com/*
 Status Code   : 429
@@ -354,9 +354,9 @@ const SECTION_EXPECTATIONS = `
 
   <h3 class="htu-h3">Mock API / Response Override Rules</h3>
   <div class="htu-steps">
-    ${step(1, 'Content scripts are injected', 'An isolated extension bridge loads validated configuration and a minimal main-world interceptor wraps fetch/XHR at document_start.')}
-    ${step(2, 'fetch and XHR are wrapped', 'The content script replaces window.fetch and window.XMLHttpRequest with intercepted versions that check rules before making network calls.')}
-    ${step(3, 'Matching request is caught', 'When page JavaScript calls fetch() or new XMLHttpRequest(), the interceptor checks if any Mock API rule matches the URL and method.')}
+    ${step(1, 'Content scripts are injected', 'An isolated extension bridge keeps validated configuration private, while a minimal main-world interceptor wraps fetch/XHR at document_start.')}
+    ${step(2, 'Concrete request is checked', 'For each fetch or asynchronous XHR call, the interceptor sends only that request URL and method to the isolated bridge.')}
+    ${step(3, 'Matching response data is returned', 'The bridge checks rules by priority and returns only the response data for the first rule that matches that concrete request.')}
     ${step(4, 'Mock: synthetic response returned', 'For Mock API rules, the real network request is never made. A Response object with your configured body, status, and headers is returned directly.')}
     ${step(5, 'Override: real request + replaced body', 'For Response Override rules, the real request is made, and the response body is replaced after it arrives.')}
   </div>
@@ -371,7 +371,7 @@ const SECTION_FAQ = `
   ${faq('I added a header rule but I don\'t see the header in DevTools.',
     'Make sure: (1) The rule toggle is ON (blue). (2) The URL pattern actually matches the request URL — check the History page to see if the rule fired. (3) The extension\'s master toggle in the popup is enabled. (4) For response headers on CORS requests, the browser may strip certain headers before the page can read them (e.g. Access-Control-* headers are controlled by CORS policy).')}
   ${faq('My Mock API rule doesn\'t seem to intercept the request.',
-    `Mock rules only work for requests made via ${c('fetch')} or ${c('XMLHttpRequest')} in the page. They do not intercept: service worker requests, requests from browser extensions, WebSocket connections, or requests made from Web Workers. Also ensure the rule is enabled and the URL pattern matches exactly (check with a test in the History page).`)}
+    `Mock rules only work for requests made via ${c('fetch')} or asynchronous ${c('XMLHttpRequest')} in the page. They do not intercept synchronous XHR, service worker requests, requests from browser extensions, WebSocket connections, or requests made from Web Workers. Also ensure the rule is enabled and the URL pattern matches exactly (check with the rule editor test tool).`)}
   ${faq('Do I need to create an Environment to use rules?',
     `No. Environments are optional. They are only needed if you use ${c('{{VARIABLE}}')} placeholders in rule fields. If you type a plain URL or value with no placeholders, the rule works without any environment.`)}
   ${faq('The History page shows no entries — why?',

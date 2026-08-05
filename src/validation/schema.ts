@@ -1,6 +1,5 @@
 import type {
   AnyRule,
-  Environment,
   ExportSchema,
   HeaderOperation,
   RuleType,
@@ -279,6 +278,9 @@ function validateEnvironment(environment: unknown, index: number): string[] {
     errors.push(`Environment ${index + 1} ID contains unsupported characters.`);
   }
   if (!isNonEmptyString(environment.name)) errors.push(`Environment ${index + 1} requires a name.`);
+  if (typeof environment.isActive !== 'boolean') {
+    errors.push(`Environment ${index + 1} active state must be boolean.`);
+  }
   if (!Array.isArray(environment.variables)) {
     errors.push(`Environment ${index + 1} variables must be an array.`);
   } else {
@@ -324,10 +326,18 @@ export function validateExportSchema(value: unknown): ValidationResult {
         ruleIds.add(rule.id);
       }
     });
-    const dnrCount = value.rules.filter((rule) =>
+    const dnrRules = value.rules.filter((rule) =>
       isRecord(rule) && rule.type !== 'mock' && rule.type !== 'responseOverride'
+    );
+    if (dnrRules.length > 5000) {
+      errors.push('Imports can contain at most 5,000 browser-network rules.');
+    }
+    const regexRuleCount = dnrRules.filter((rule) =>
+      isRecord(rule) && isRecord(rule.urlMatcher) && rule.urlMatcher.isRegex === true
     ).length;
-    if (dnrCount > 5000) errors.push('Imports can contain at most 5,000 browser-network rules.');
+    if (regexRuleCount > 1000) {
+      errors.push('Imports can contain at most 1,000 regular-expression browser-network rules.');
+    }
   }
   if (!Array.isArray(value.environments)) {
     errors.push('Environments must be an array.');
@@ -340,7 +350,9 @@ export function validateExportSchema(value: unknown): ValidationResult {
         environmentIds.add(environment.id);
       }
     });
-    const activeCount = (value.environments as Environment[]).filter((environment) => environment.isActive).length;
+    const activeCount = value.environments.filter(
+      (environment) => isRecord(environment) && environment.isActive === true
+    ).length;
     if (activeCount > 1) errors.push('Only one imported environment can be active.');
     if (Array.isArray(value.rules)) {
       value.rules.forEach((rule, ruleIndex) => {

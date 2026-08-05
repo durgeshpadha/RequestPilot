@@ -1,5 +1,6 @@
 import { storageService } from '../storage/StorageService.js';
 import { applyDnrRules } from './ruleEngine.js';
+import type { RuleSyncResult } from './ruleEngine.js';
 import { appendHistory, appendHistoryBatch } from './historyManager.js';
 import { redactSensitiveUrl, ruleMatchesRequest } from '../utils/ruleMatcher.js';
 import type { AnyRule, Environment, Settings } from '../models/types.js';
@@ -7,22 +8,27 @@ import type { AnyRule, Environment, Settings } from '../models/types.js';
 let cachedRules: AnyRule[] = [];
 let cachedEnvironment: Environment | null = null;
 let cachedSettings: Settings | null = null;
-let ruleSyncQueue: Promise<{ applied: number; errors: string[] }> = Promise.resolve({
+let ruleSyncQueue: Promise<RuleSyncResult> = Promise.resolve({
   applied: 0,
   errors: [],
+  activeRuleIds: [],
+  synchronized: true,
 });
 
-async function performRuleSync(): Promise<{ applied: number; errors: string[] }> {
+async function performRuleSync(): Promise<RuleSyncResult> {
   try {
     const [rules, settings, activeEnvironment] = await Promise.all([
       storageService.getRules(),
       storageService.getSettings(),
       storageService.getActiveEnvironment(),
     ]);
-    cachedRules = rules;
     cachedSettings = settings;
-    cachedEnvironment = activeEnvironment;
     const result = await applyDnrRules(rules, activeEnvironment, settings.extensionEnabled);
+    if (result.synchronized) {
+      const activeRuleIds = new Set(result.activeRuleIds);
+      cachedRules = rules.filter((rule) => activeRuleIds.has(rule.id));
+      cachedEnvironment = activeEnvironment;
+    }
     if (result.errors.length) {
       console.warn('[RequestPilot] Some rules were not applied:', result.errors);
     }
@@ -30,11 +36,16 @@ async function performRuleSync(): Promise<{ applied: number; errors: string[] }>
   } catch (error) {
     const message = String(error);
     console.error('[RequestPilot] Rule synchronization failed:', error);
-    return { applied: 0, errors: [message] };
+    return {
+      applied: 0,
+      errors: [message],
+      activeRuleIds: [],
+      synchronized: false,
+    };
   }
 }
 
-function syncRules(): Promise<{ applied: number; errors: string[] }> {
+function syncRules(): Promise<RuleSyncResult> {
   // Saving settings emits storage.onChanged while popup/options handlers may
   // request an immediate sync as well. Serialize both paths so two refreshes
   // cannot remove/add the same dynamic rule IDs concurrently.
@@ -87,8 +98,8 @@ chrome.runtime.onStartup.addListener(async () => {
 void storageService.initialize().then(syncRules);
 
 // Store-compatible observation for history. Unlike onRuleMatchedDebug, webRequest
-// observation is available in packaged builds. Rules are validated before DNR sync,
-// so matching here mirrors the active rule configuration.
+// observation is available in packaged builds. cachedRules contains only rules that
+// passed validation, variable resolution, browser support, and activation quotas.
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (!cachedSettings?.extensionEnabled || !cachedSettings.historyEnabled) return undefined;

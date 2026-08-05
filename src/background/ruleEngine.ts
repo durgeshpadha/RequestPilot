@@ -33,6 +33,15 @@ import { ruleAppliesToEnvironment } from '../utils/ruleMatcher.js';
 
 const DNR_ID_BASE = 1000;
 const MAX_DNR_ID = 2_147_483_647;
+const MAX_UNSAFE_DYNAMIC_RULES = 5000;
+const MAX_REGEX_RULES = 1000;
+
+export interface RuleSyncResult {
+  applied: number;
+  errors: string[];
+  activeRuleIds: string[];
+  synchronized: boolean;
+}
 
 // ============================================================
 // Helpers
@@ -164,6 +173,7 @@ function headerRuleToDnr(
 
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     ...toUrlFilter(resolve(rule.urlMatcher.pattern, env), rule.urlMatcher.isRegex),
+    isUrlFilterCaseSensitive: true,
     resourceTypes: toDnrResourceTypes(rule.urlMatcher.resourceTypes),
     ...(toRequestMethods(rule.urlMatcher.httpMethods)
       ? { requestMethods: toRequestMethods(rule.urlMatcher.httpMethods) }
@@ -194,6 +204,7 @@ function redirectRuleToDnr(
 
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     ...toUrlFilter(resolve(rule.urlMatcher.pattern, env), rule.urlMatcher.isRegex),
+    isUrlFilterCaseSensitive: true,
     resourceTypes: toDnrResourceTypes(rule.urlMatcher.resourceTypes),
     ...(toRequestMethods(rule.urlMatcher.httpMethods)
       ? { requestMethods: toRequestMethods(rule.urlMatcher.httpMethods) }
@@ -241,6 +252,7 @@ function queryParamRuleToDnr(
 
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     ...toUrlFilter(resolve(rule.urlMatcher.pattern, env), rule.urlMatcher.isRegex),
+    isUrlFilterCaseSensitive: true,
     resourceTypes: toDnrResourceTypes(rule.urlMatcher.resourceTypes),
     ...(toRequestMethods(rule.urlMatcher.httpMethods)
       ? { requestMethods: toRequestMethods(rule.urlMatcher.httpMethods) }
@@ -305,6 +317,7 @@ function cookieRuleToDnr(
 
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     ...toUrlFilter(resolve(rule.urlMatcher.pattern, env), rule.urlMatcher.isRegex),
+    isUrlFilterCaseSensitive: true,
     resourceTypes: toDnrResourceTypes(rule.urlMatcher.resourceTypes),
     ...(toRequestMethods(rule.urlMatcher.httpMethods)
       ? { requestMethods: toRequestMethods(rule.urlMatcher.httpMethods) }
@@ -368,7 +381,7 @@ export async function applyDnrRules(
   rules: AnyRule[],
   env: Environment | null,
   extensionEnabled: boolean
-): Promise<{ applied: number; errors: string[] }> {
+): Promise<RuleSyncResult> {
   const errors: string[] = [];
 
   try {
@@ -381,15 +394,17 @@ export async function applyDnrRules(
       if (removeIds.length > 0) {
         await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: removeIds });
       }
-      return { applied: 0, errors: [] };
+      return {
+        applied: 0,
+        errors: [],
+        activeRuleIds: [],
+        synchronized: true,
+      };
     }
 
     const validRules: AnyRule[] = [];
     for (const rule of rules) {
-      if (!rule.enabled || rule.type === 'mock' || rule.type === 'responseOverride') {
-        if (ruleAppliesToEnvironment(rule, env)) validRules.push(rule);
-        continue;
-      }
+      if (!rule.enabled) continue;
       if (!ruleAppliesToEnvironment(rule, env)) continue;
       const validation = validateRule(rule);
       if (!validation.valid) {
@@ -406,7 +421,12 @@ export async function applyDnrRules(
         errors.push(`${rule.name}: ${resolvedValidation.errors.join(' ')}`);
         continue;
       }
-      if (resolvedRule.urlMatcher.isRegex && chrome.declarativeNetRequest.isRegexSupported) {
+      if (
+        resolvedRule.type !== 'mock' &&
+        resolvedRule.type !== 'responseOverride' &&
+        resolvedRule.urlMatcher.isRegex &&
+        chrome.declarativeNetRequest.isRegexSupported
+      ) {
         const supported = await chrome.declarativeNetRequest.isRegexSupported({
           regex: resolvedRule.urlMatcher.pattern,
         });
@@ -424,10 +444,25 @@ export async function applyDnrRules(
     const networkRules = validRules
       .filter((rule) => rule.type !== 'mock' && rule.type !== 'responseOverride')
       .sort((a, b) => b.priority - a.priority);
-    if (networkRules.length > 5000) {
-      errors.push('Only the 5,000 highest-priority browser-network rules were activated.');
+    const regexRuleCount = networkRules.filter((rule) => rule.urlMatcher.isRegex).length;
+    if (regexRuleCount > MAX_REGEX_RULES) {
+      errors.push('Only the 1,000 highest-priority regular-expression browser rules were activated.');
     }
-    const dnrRules = buildDnrRules([...networkRules.slice(0, 5000), ...contentRules], env);
+    if (networkRules.length > MAX_UNSAFE_DYNAMIC_RULES) {
+      errors.push('At most 5,000 browser-network rules were activated.');
+    }
+
+    const activeNetworkRules: AnyRule[] = [];
+    let activeRegexRules = 0;
+    for (const rule of networkRules) {
+      if (activeNetworkRules.length >= MAX_UNSAFE_DYNAMIC_RULES) break;
+      if (rule.urlMatcher.isRegex) {
+        if (activeRegexRules >= MAX_REGEX_RULES) continue;
+        activeRegexRules += 1;
+      }
+      activeNetworkRules.push(rule);
+    }
+    const dnrRules = buildDnrRules(activeNetworkRules, env);
 
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds: removeIds,
@@ -435,11 +470,21 @@ export async function applyDnrRules(
     });
 
     console.log(`[RequestPilot] Applied ${dnrRules.length} DNR rules`);
-    return { applied: dnrRules.length, errors };
+    return {
+      applied: dnrRules.length,
+      errors,
+      activeRuleIds: [...activeNetworkRules, ...contentRules].map((rule) => rule.id),
+      synchronized: true,
+    };
   } catch (err) {
     const msg = String(err);
     errors.push(msg);
     console.error('[RequestPilot] DNR apply error:', msg);
-    return { applied: 0, errors };
+    return {
+      applied: 0,
+      errors,
+      activeRuleIds: [],
+      synchronized: false,
+    };
   }
 }

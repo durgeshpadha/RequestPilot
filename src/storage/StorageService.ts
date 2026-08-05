@@ -341,9 +341,24 @@ export class StorageService {
       validated.rules.forEach((r) => {
         if (!mergedRules.find((e) => e.id === r.id)) mergedRules.push(r);
       });
-      const mergedEnvs = [...existingEnvs];
+      // Preserve the existing active environment when merging. If none exists,
+      // allow the imported active environment to become active. Normalizing the
+      // complete collection also repairs older data with multiple active entries.
+      const activeEnvironmentId =
+        existingEnvs.find((environment) => environment.isActive)?.id ??
+        validated.environments.find((environment) => environment.isActive)?.id ??
+        null;
+      const mergedEnvs = existingEnvs.map((environment) => ({
+        ...environment,
+        isActive: environment.id === activeEnvironmentId,
+      }));
       validated.environments.forEach((e) => {
-        if (!mergedEnvs.find((x) => x.id === e.id)) mergedEnvs.push(e);
+        if (!mergedEnvs.find((x) => x.id === e.id)) {
+          mergedEnvs.push({
+            ...e,
+            isActive: e.id === activeEnvironmentId,
+          });
+        }
       });
       await this.writeRules(mergedRules);
       await chrome.storage.local.set({

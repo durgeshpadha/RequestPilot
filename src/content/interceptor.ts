@@ -2,15 +2,6 @@
   interface MainRule {
     id: string;
     type: 'mock' | 'responseOverride';
-    name: string;
-    enabled: boolean;
-    priority: number;
-    urlMatcher: {
-      pattern: string;
-      isRegex: boolean;
-      resourceTypes: string[];
-      httpMethods: string[];
-    };
     statusCode?: number;
     responseBody?: string;
     responseHeaders?: Array<{ name: string; value: string; operation: string }>;
@@ -18,13 +9,54 @@
     body?: string;
   }
 
-  interface MainConfig {
+  interface MainStatus {
     extensionEnabled: boolean;
-    rules: MainRule[];
+    hasRules: boolean;
   }
 
-  let config: MainConfig = { extensionEnabled: true, rules: [] };
+  interface PendingMatch {
+    resolve: (rule: MainRule | null) => void;
+    reject: (error: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
+    signal?: AbortSignal;
+    abortHandler?: () => void;
+  }
+
+  const MATCH_TIMEOUT_MS = 1000;
+  let status: MainStatus = { extensionEnabled: false, hasRules: false };
   let channel = '';
+  const pendingMatches = new Map<string, PendingMatch>();
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function asMainRule(value: unknown): MainRule | null {
+    if (
+      !isRecord(value) ||
+      typeof value.id !== 'string' ||
+      (value.type !== 'mock' && value.type !== 'responseOverride')
+    ) {
+      return null;
+    }
+    const responseHeaders = Array.isArray(value.responseHeaders)
+      ? value.responseHeaders.filter((header): header is { name: string; value: string; operation: string } =>
+          isRecord(header) &&
+          typeof header.name === 'string' &&
+          typeof header.value === 'string' &&
+          typeof header.operation === 'string'
+        )
+      : undefined;
+    return {
+      id: value.id,
+      type: value.type,
+      ...(typeof value.statusCode === 'number' ? { statusCode: value.statusCode } : {}),
+      ...(typeof value.responseBody === 'string' ? { responseBody: value.responseBody } : {}),
+      ...(responseHeaders ? { responseHeaders } : {}),
+      ...(typeof value.delay === 'number' ? { delay: value.delay } : {}),
+      ...(typeof value.body === 'string' ? { body: value.body } : {}),
+    };
+  }
 
   function absoluteUrl(url: string): string {
     try {
@@ -34,30 +66,74 @@
     }
   }
 
-  function matches(rule: MainRule, url: string, method: string): boolean {
-    const methods = rule.urlMatcher.httpMethods;
-    if (methods.length && !methods.includes('*') && !methods.includes(method.toUpperCase())) {
-      return false;
-    }
-    const resources = rule.urlMatcher.resourceTypes;
-    if (resources.length && !resources.includes('*') && !resources.includes('xmlhttprequest')) {
-      return false;
-    }
-    const pattern = rule.urlMatcher.pattern;
-    if (!pattern || pattern === '*') return true;
-    try {
-      if (rule.urlMatcher.isRegex) return new RegExp(pattern).test(url);
-      const escaped = pattern
-        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*/g, '.*');
-      return new RegExp(`^${escaped}$`).test(url);
-    } catch {
-      return false;
+  function abortReason(signal: AbortSignal): unknown {
+    return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+  }
+
+  function cleanupPending(pending: PendingMatch): void {
+    clearTimeout(pending.timer);
+    if (pending.signal && pending.abortHandler) {
+      pending.signal.removeEventListener('abort', pending.abortHandler);
     }
   }
 
-  function firstMatchingAny(url: string, method: string): MainRule | undefined {
-    return config.rules.find((rule) => matches(rule, url, method));
+  function settleMatch(requestId: string, rule: MainRule | null): void {
+    const pending = pendingMatches.get(requestId);
+    if (!pending) return;
+    pendingMatches.delete(requestId);
+    cleanupPending(pending);
+    pending.resolve(rule);
+  }
+
+  function rejectMatch(requestId: string, error: unknown): void {
+    const pending = pendingMatches.get(requestId);
+    if (!pending) return;
+    pendingMatches.delete(requestId);
+    cleanupPending(pending);
+    pending.reject(error);
+  }
+
+  function requestMatch(
+    url: string,
+    method: string,
+    signal?: AbortSignal
+  ): Promise<MainRule | null> {
+    if (!channel || !status.extensionEnabled || !status.hasRules) {
+      return Promise.resolve(null);
+    }
+    if (signal?.aborted) return Promise.reject(abortReason(signal));
+
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => settleMatch(requestId, null), MATCH_TIMEOUT_MS);
+      const abortHandler = signal
+        ? () => rejectMatch(requestId, abortReason(signal))
+        : undefined;
+      pendingMatches.set(requestId, { resolve, reject, timer, signal, abortHandler });
+      if (signal && abortHandler) signal.addEventListener('abort', abortHandler, { once: true });
+      window.postMessage({
+        source: 'requestpilot-main',
+        type: 'MATCH_REQUEST',
+        channel,
+        payload: { requestId, url, method },
+      }, '*');
+    });
+  }
+
+  function waitForDelay(delay: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(abortReason(signal));
+    if (delay <= 0) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, delay);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(abortReason(signal as AbortSignal));
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   function responseHeaders(rule: MainRule): Headers {
@@ -84,17 +160,12 @@
       source: 'requestpilot-main',
       type: 'RULE_HIT',
       channel,
-      payload: {
-        ruleId: rule.id,
-        method,
-        url,
-        modificationType: rule.type === 'mock' ? 'Mock Response' : 'Response Override',
-      },
+      payload: { ruleId: rule.id, method, url },
     }, '*');
   }
 
-  function responseBodyForStatus(body: string, status: number): BodyInit | null {
-    return status === 204 || status === 205 || status === 304 ? null : body;
+  function responseBodyForStatus(body: string, responseStatus: number): BodyInit | null {
+    return responseStatus === 204 || responseStatus === 205 || responseStatus === 304 ? null : body;
   }
 
   const nativeFetch = window.fetch.bind(window);
@@ -102,7 +173,7 @@
     input: RequestInfo | URL,
     init?: RequestInit
   ): Promise<Response> {
-    if (!config.extensionEnabled) return nativeFetch(input, init);
+    if (!status.extensionEnabled || !status.hasRules || !channel) return nativeFetch(input, init);
     const rawUrl = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -110,38 +181,41 @@
         : input.url;
     const url = absoluteUrl(rawUrl);
     const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const signal = init && 'signal' in init
+      ? init.signal ?? undefined
+      : input instanceof Request
+        ? input.signal
+        : undefined;
 
-    const matchedRule = firstMatchingAny(url, method);
+    const matchedRule = await requestMatch(url, method, signal);
     if (matchedRule?.type === 'mock') {
-      const mock = matchedRule;
-      const wait = Math.max(0, mock.delay ?? 0);
-      if (wait) await new Promise<void>((resolve) => setTimeout(resolve, wait));
-      const status = mock.statusCode ?? 200;
+      const wait = Math.max(0, matchedRule.delay ?? 0);
+      await waitForDelay(wait, signal);
+      const responseStatus = matchedRule.statusCode ?? 200;
       const response = new Response(
-        responseBodyForStatus(mock.responseBody ?? '', status),
-        { status, headers: responseHeaders(mock) }
+        responseBodyForStatus(matchedRule.responseBody ?? '', responseStatus),
+        { status: responseStatus, headers: responseHeaders(matchedRule) }
       );
       try {
         Object.defineProperty(response, 'url', { value: url });
       } catch { /* Browser-owned fields may be non-configurable. */ }
-      reportHit(mock, method, url);
+      reportHit(matchedRule, method, url);
       return response;
     }
 
     if (matchedRule?.type !== 'responseOverride') return nativeFetch(input, init);
-    const override = matchedRule;
     const original = await nativeFetch(input, init);
-    const status = override.statusCode ?? original.status;
-    if (status < 200 || status > 599) return original;
+    const responseStatus = matchedRule.statusCode ?? original.status;
+    if (responseStatus < 200 || responseStatus > 599) return original;
     const overriddenHeaders = new Headers(original.headers);
     overriddenHeaders.delete('content-length');
     overriddenHeaders.delete('content-encoding');
     overriddenHeaders.delete('etag');
     const response = new Response(
-      responseBodyForStatus(override.body ?? '', status),
+      responseBodyForStatus(matchedRule.body ?? '', responseStatus),
       {
-        status,
-        statusText: override.statusCode ? '' : original.statusText,
+        status: responseStatus,
+        statusText: matchedRule.statusCode ? '' : original.statusText,
         headers: overriddenHeaders,
       }
     );
@@ -150,7 +224,7 @@
         Object.defineProperty(response, property, { value: original[property] });
       } catch { /* Browser-owned fields may be non-configurable. */ }
     }
-    reportHit(override, method, url);
+    reportHit(matchedRule, method, url);
     return response;
   };
 
@@ -159,6 +233,9 @@
   class RequestPilotXHR extends NativeXHR {
     private requestUrl = '';
     private requestMethod = 'GET';
+    private requestAsync = true;
+    private requestGeneration = 0;
+    private brokerPending = false;
     private mockRule: MainRule | null = null;
     private overrideRule: MainRule | null = null;
     private mockTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,27 +258,57 @@
     open(method: string, url: string | URL, ...rest: unknown[]): void {
       this.requestMethod = method.toUpperCase();
       this.requestUrl = absoluteUrl(url instanceof URL ? url.href : String(url));
+      this.requestAsync = rest[0] !== false;
+      this.requestGeneration += 1;
+      this.brokerPending = false;
+      this.mockRule = null;
+      this.overrideRule = null;
+      this.mockComplete = false;
+      this.overrideApplied = false;
       // TypeScript's DOM overloads cannot represent forwarding this variadic call.
       // @ts-expect-error Forward the browser-supported async/user/password arguments.
       super.open(method, url, ...rest);
     }
 
     send(body?: Document | XMLHttpRequestBodyInit | null): void {
-      if (!config.extensionEnabled) {
+      if (
+        !status.extensionEnabled ||
+        !status.hasRules ||
+        !channel ||
+        !this.requestAsync
+      ) {
         super.send(body);
         return;
       }
-      const matchedRule = firstMatchingAny(this.requestUrl, this.requestMethod);
-      if (matchedRule?.type === 'mock') {
-        this.mockRule = matchedRule;
-        this.serveMock(matchedRule);
-        return;
+      if (this.brokerPending) {
+        throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
       }
-      this.overrideRule = matchedRule?.type === 'responseOverride' ? matchedRule : null;
-      super.send(body);
+      const generation = this.requestGeneration;
+      this.brokerPending = true;
+      void requestMatch(this.requestUrl, this.requestMethod).then((matchedRule) => {
+        if (generation !== this.requestGeneration) return;
+        this.brokerPending = false;
+        if (matchedRule?.type === 'mock') {
+          this.mockRule = matchedRule;
+          this.serveMock(matchedRule);
+          return;
+        }
+        this.overrideRule = matchedRule?.type === 'responseOverride' ? matchedRule : null;
+        super.send(body);
+      }).catch(() => {
+        if (generation !== this.requestGeneration) return;
+        this.brokerPending = false;
+        super.send(body);
+      });
     }
 
     abort(): void {
+      if (this.brokerPending) {
+        this.requestGeneration += 1;
+        this.brokerPending = false;
+        super.abort();
+        return;
+      }
       if (!this.mockRule || this.mockComplete) {
         super.abort();
         return;
@@ -242,14 +349,14 @@
 
     private defineResponse(
       text: string,
-      status: number,
-      statusText: string,
+      responseStatus: number,
+      responseStatusText: string,
       responseUrl: string
     ): void {
       const typed = this.typedResponse(text);
       Object.defineProperties(this, {
-        status: { configurable: true, get: () => status },
-        statusText: { configurable: true, get: () => statusText },
+        status: { configurable: true, get: () => responseStatus },
+        statusText: { configurable: true, get: () => responseStatusText },
         response: { configurable: true, get: () => typed },
         responseURL: { configurable: true, get: () => responseUrl },
       });
@@ -261,8 +368,8 @@
       }
     }
 
-    private transition(state: number): void {
-      this.mockReadyState = state;
+    private transition(nextState: number): void {
+      this.mockReadyState = nextState;
       Object.defineProperty(this, 'readyState', {
         configurable: true,
         get: () => this.mockReadyState,
@@ -285,10 +392,10 @@
           return;
         }
         const text = rule.responseBody ?? '';
-        const status = rule.statusCode ?? 200;
+        const responseStatus = rule.statusCode ?? 200;
         this.transition(2);
         this.transition(3);
-        this.defineResponse(text, status, status === 200 ? 'OK' : '', this.requestUrl);
+        this.defineResponse(text, responseStatus, responseStatus === 200 ? 'OK' : '', this.requestUrl);
         this.transition(4);
         this.mockComplete = true;
         this.dispatchEvent(new ProgressEvent('load', {
@@ -305,8 +412,8 @@
       this.overrideApplied = true;
       const originalStatus = super.status;
       const text = rule.body ?? '';
-      const status = rule.statusCode ?? originalStatus;
-      this.defineResponse(text, status, rule.statusCode ? '' : super.statusText, super.responseURL);
+      const responseStatus = rule.statusCode ?? originalStatus;
+      this.defineResponse(text, responseStatus, rule.statusCode ? '' : super.statusText, super.responseURL);
       reportHit(rule, this.requestMethod, this.requestUrl);
     }
   }
@@ -319,20 +426,36 @@
     if (
       !data ||
       data.source !== 'requestpilot-isolated' ||
-      data.type !== 'CONFIG' ||
       typeof data.channel !== 'string' ||
-      typeof data.payload !== 'object' ||
-      data.payload === null
+      !isRecord(data.payload)
     ) {
       return;
     }
     if (channel && data.channel !== channel) return;
-    const payload = data.payload as Partial<MainConfig>;
-    if (typeof payload.extensionEnabled !== 'boolean' || !Array.isArray(payload.rules)) return;
-    channel = data.channel;
-    config = {
-      extensionEnabled: payload.extensionEnabled,
-      rules: payload.rules,
-    };
+
+    const payload = data.payload;
+    if (data.type === 'STATUS') {
+      if (
+        typeof payload.extensionEnabled !== 'boolean' ||
+        typeof payload.hasRules !== 'boolean'
+      ) {
+        return;
+      }
+      channel = data.channel;
+      status = {
+        extensionEnabled: payload.extensionEnabled,
+        hasRules: payload.hasRules,
+      };
+      if (!status.extensionEnabled || !status.hasRules) {
+        Array.from(pendingMatches.keys()).forEach((requestId) => settleMatch(requestId, null));
+      }
+      return;
+    }
+
+    if (data.type !== 'MATCH_RESPONSE' || data.channel !== channel) return;
+    if (typeof payload.requestId !== 'string') return;
+    settleMatch(payload.requestId, asMainRule(payload.rule));
   });
+
+  window.postMessage({ source: 'requestpilot-main', type: 'READY' }, '*');
 })();

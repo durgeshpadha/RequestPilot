@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildDnrRules } from '../dist/background/ruleEngine.js';
+import { applyDnrRules, buildDnrRules } from '../dist/background/ruleEngine.js';
 import { validateExportSchema, validateRule } from '../dist/validation/schema.js';
 import {
   matchesUrlPattern,
@@ -44,6 +44,25 @@ test('document resource type maps to Chromium frame types', () => {
     urlMatcher: { ...base.urlMatcher, resourceTypes: ['document'] },
   }], null);
   assert.deepEqual(compiled[0].condition.resourceTypes, ['main_frame', 'sub_frame']);
+});
+
+test('DNR conditions use the same case-sensitive URL matching as JavaScript', () => {
+  const compiled = buildDnrRules([{
+    ...base,
+    id: 'case-sensitive-rule',
+    type: 'redirect',
+    redirectUrl: 'https://target.example.com/',
+    urlMatcher: { ...base.urlMatcher, pattern: 'https://api.example.com/Admin/*' },
+  }], null);
+  assert.equal(compiled[0].condition.isUrlFilterCaseSensitive, true);
+  assert.equal(
+    matchesUrlPattern(
+      'https://api.example.com/Admin/*',
+      false,
+      'https://api.example.com/admin/users'
+    ),
+    false
+  );
 });
 
 test('request header append validation follows Chromium allowlist', () => {
@@ -118,6 +137,102 @@ test('import validation rejects duplicate IDs and malformed environments', () =>
   });
   assert.equal(result.valid, false);
   assert.match(result.errors.join(' '), /duplicate/i);
+});
+
+test('import validation returns errors for null environments instead of throwing', () => {
+  const result = validateExportSchema({
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    rules: [],
+    environments: [null],
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /environment 1 must be an object/i);
+});
+
+test('import validation enforces the browser-network regex quota', () => {
+  const rules = Array.from({ length: 1001 }, (_, index) => ({
+    ...base,
+    id: `regex-${index}`,
+    type: 'redirect',
+    redirectUrl: `https://target.example.com/${index}`,
+    urlMatcher: {
+      ...base.urlMatcher,
+      pattern: '^https://api\\.example\\.com/',
+      isRegex: true,
+    },
+  }));
+  const result = validateExportSchema({
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    rules,
+    environments: [],
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join(' '), /at most 1,000 regular-expression/i);
+});
+
+test('rule synchronization reports only rules that were actually activated', async () => {
+  const updates = [];
+  globalThis.chrome = {
+    declarativeNetRequest: {
+      getDynamicRules: async () => [],
+      updateDynamicRules: async (update) => { updates.push(update); },
+    },
+  };
+  const invalidHeader = {
+    ...base,
+    id: 'invalid-header',
+    type: 'header',
+    target: 'request',
+    headers: [{ name: 'X-Custom', value: 'value', operation: 'append' }],
+  };
+  const validRedirect = {
+    ...base,
+    id: 'valid-redirect',
+    type: 'redirect',
+    redirectUrl: 'https://target.example.com/',
+  };
+
+  try {
+    const result = await applyDnrRules([invalidHeader, validRedirect], null, true);
+    assert.equal(result.synchronized, true);
+    assert.deepEqual(result.activeRuleIds, ['valid-redirect']);
+    assert.equal(updates[0].addRules.length, 1);
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test('rule synchronization activates at most 1,000 DNR regex rules', async () => {
+  let addedRules = [];
+  globalThis.chrome = {
+    declarativeNetRequest: {
+      getDynamicRules: async () => [],
+      updateDynamicRules: async (update) => { addedRules = update.addRules; },
+    },
+  };
+  const rules = Array.from({ length: 1001 }, (_, index) => ({
+    ...base,
+    id: `runtime-regex-${index}`,
+    type: 'redirect',
+    redirectUrl: `https://target.example.com/${index}`,
+    urlMatcher: {
+      ...base.urlMatcher,
+      pattern: '^https://api\\.example\\.com/',
+      isRegex: true,
+    },
+  }));
+
+  try {
+    const result = await applyDnrRules(rules, null, true);
+    assert.equal(result.synchronized, true);
+    assert.equal(result.applied, 1000);
+    assert.equal(addedRules.length, 1000);
+    assert.match(result.errors.join(' '), /1,000 highest-priority/i);
+  } finally {
+    delete globalThis.chrome;
+  }
 });
 
 test('rules apply only in their selected environments', () => {
