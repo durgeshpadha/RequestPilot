@@ -101,7 +101,9 @@ RequestPilot/
 These use the browser's native [`declarativeNetRequest`](https://developer.chrome.com/docs/extensions/reference/declarativeNetRequest/) API. Rules are compiled and applied as dynamic DNR rules every time you save or toggle a rule. No page reload required — changes take effect on the next matching request.
 
 ### Mock API & Response Override
-These use a two-part content-script architecture. An isolated-world bridge keeps validated configuration private and answers one URL/method match request at a time. A `MAIN`-world interceptor wraps `window.fetch` and asynchronous `window.XMLHttpRequest`, receiving only the response data for the concrete request that matched. The page never receives extension API access or the complete rule configuration.
+These use a two-part content-script architecture. An isolated-world bridge retains the complete validated configuration and answers one URL/method match request at a time. A `MAIN`-world interceptor wraps `window.fetch` and asynchronous `window.XMLHttpRequest`, receiving only the response data for the concrete request that matched. The page never receives extension API access or a bulk copy of the rule configuration.
+
+The bridge uses the page's `window.postMessage` bus, which page scripts can observe and forge. Matched mock/override payloads are therefore page-visible and the request-scoped protocol is a data-minimization measure, not an authentication or confidentiality boundary. Do not store passwords, access tokens, or other secrets in environment variables used by mock or response-override payloads.
 
 ### Environment Variables
 Use `{{KEY}}` placeholders in any rule field. The active environment's variables are resolved before rules are applied. Switch environments from the popup or the Environments page.

@@ -25,7 +25,17 @@
   const MATCH_TIMEOUT_MS = 1000;
   let status: MainStatus = { extensionEnabled: false, hasRules: false };
   let channel = '';
+  let messageIdSequence = 0;
   const pendingMatches = new Map<string, PendingMatch>();
+
+  function createMessageId(): string {
+    const random = new Uint32Array(4);
+    crypto.getRandomValues(random);
+    messageIdSequence = (messageIdSequence + 1) >>> 0;
+    return `${Array.from(random, (part) => part.toString(16).padStart(8, '0')).join('')}-${messageIdSequence.toString(16)}`;
+  }
+
+  const readyId = createMessageId();
 
   function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -103,7 +113,7 @@
     }
     if (signal?.aborted) return Promise.reject(abortReason(signal));
 
-    const requestId = crypto.randomUUID();
+    const requestId = createMessageId();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => settleMatch(requestId, null), MATCH_TIMEOUT_MS);
       const abortHandler = signal
@@ -235,7 +245,13 @@
     private requestMethod = 'GET';
     private requestAsync = true;
     private requestGeneration = 0;
+    private requestStartedAt = 0;
+    private requestTimeout = 0;
+    private sendStarted = false;
+    private nativeSendStarted = false;
     private brokerPending = false;
+    private brokerAbortController: AbortController | null = null;
+    private requestTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     private mockRule: MainRule | null = null;
     private overrideRule: MainRule | null = null;
     private mockTimer: ReturnType<typeof setTimeout> | null = null;
@@ -246,6 +262,21 @@
 
     constructor() {
       super();
+      this.requestTimeout = super.timeout;
+      Object.defineProperties(this, {
+        timeout: {
+          configurable: true,
+          enumerable: true,
+          get: () => this.requestTimeout,
+          set: (value: number) => this.setRequestTimeout(value),
+        },
+        withCredentials: {
+          configurable: true,
+          enumerable: true,
+          get: () => this.getNativeWithCredentials(),
+          set: (value: boolean) => this.setRequestWithCredentials(value),
+        },
+      });
       // Registered before page code can attach handlers, so overridden data is
       // available to application readystatechange/load listeners.
       this.addEventListener('readystatechange', () => {
@@ -253,13 +284,23 @@
           this.applyOverride(this.overrideRule);
         }
       });
+      this.addEventListener('loadend', () => {
+        this.sendStarted = false;
+        this.nativeSendStarted = false;
+        this.clearRequestTimeoutTimer();
+      });
     }
 
     open(method: string, url: string | URL, ...rest: unknown[]): void {
+      this.requestGeneration += 1;
+      this.cancelSyntheticWork();
+      this.clearSyntheticProperties();
       this.requestMethod = method.toUpperCase();
       this.requestUrl = absoluteUrl(url instanceof URL ? url.href : String(url));
       this.requestAsync = rest[0] !== false;
-      this.requestGeneration += 1;
+      this.requestStartedAt = 0;
+      this.sendStarted = false;
+      this.nativeSendStarted = false;
       this.brokerPending = false;
       this.mockRule = null;
       this.overrideRule = null;
@@ -268,6 +309,7 @@
       // TypeScript's DOM overloads cannot represent forwarding this variadic call.
       // @ts-expect-error Forward the browser-supported async/user/password arguments.
       super.open(method, url, ...rest);
+      super.timeout = this.requestTimeout;
     }
 
     send(body?: Document | XMLHttpRequestBodyInit | null): void {
@@ -280,33 +322,42 @@
         super.send(body);
         return;
       }
-      if (this.brokerPending) {
+      if (this.readyState !== 1 || this.sendStarted) {
         throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
       }
       const generation = this.requestGeneration;
+      this.requestStartedAt = Date.now();
+      this.sendStarted = true;
       this.brokerPending = true;
-      void requestMatch(this.requestUrl, this.requestMethod).then((matchedRule) => {
-        if (generation !== this.requestGeneration) return;
-        this.brokerPending = false;
-        if (matchedRule?.type === 'mock') {
-          this.mockRule = matchedRule;
-          this.serveMock(matchedRule);
-          return;
-        }
-        this.overrideRule = matchedRule?.type === 'responseOverride' ? matchedRule : null;
-        super.send(body);
-      }).catch(() => {
-        if (generation !== this.requestGeneration) return;
-        this.brokerPending = false;
-        super.send(body);
-      });
+      this.brokerAbortController = new AbortController();
+      this.scheduleSyntheticTimeout(generation);
+      void requestMatch(
+        this.requestUrl,
+        this.requestMethod,
+        this.brokerAbortController.signal
+      ).then(
+        (matchedRule) => this.finishBrokerRequest(generation, body, matchedRule),
+        () => this.finishBrokerRequest(generation, body, null)
+      );
     }
 
     abort(): void {
-      if (this.brokerPending) {
+      if (this.sendStarted && !this.nativeSendStarted) {
         this.requestGeneration += 1;
+        this.cancelSyntheticWork();
         this.brokerPending = false;
+        this.sendStarted = false;
+        this.mockComplete = true;
+        this.dispatchSyntheticAbort();
+        return;
+      }
+      if (this.mockComplete && Object.prototype.hasOwnProperty.call(this, 'readyState')) {
         super.abort();
+        this.mockReadyState = 0;
+        Object.defineProperty(this, 'readyState', {
+          configurable: true,
+          get: () => this.mockReadyState,
+        });
         return;
       }
       if (!this.mockRule || this.mockComplete) {
@@ -315,13 +366,15 @@
       }
       if (this.mockTimer) clearTimeout(this.mockTimer);
       this.mockComplete = true;
-      this.mockReadyState = 0;
-      Object.defineProperty(this, 'readyState', {
-        configurable: true,
-        get: () => this.mockReadyState,
-      });
-      this.dispatchEvent(new ProgressEvent('abort'));
-      this.dispatchEvent(new ProgressEvent('loadend'));
+      this.sendStarted = false;
+      this.dispatchSyntheticAbort();
+    }
+
+    setRequestHeader(name: string, value: string): void {
+      if (this.readyState !== 1 || this.sendStarted) {
+        throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
+      }
+      super.setRequestHeader(name, value);
     }
 
     getResponseHeader(name: string): string | null {
@@ -380,17 +433,8 @@
     private serveMock(rule: MainRule): void {
       this.mockHeaders = responseHeaders(rule);
       const delay = Math.max(0, rule.delay ?? 0);
-      const timeoutMs = this.timeout > 0 ? this.timeout : 0;
-      const willTimeout = timeoutMs > 0 && delay > timeoutMs;
       this.mockTimer = setTimeout(() => {
         if (this.mockComplete) return;
-        if (willTimeout) {
-          this.mockComplete = true;
-          this.transition(4);
-          this.dispatchEvent(new ProgressEvent('timeout'));
-          this.dispatchEvent(new ProgressEvent('loadend'));
-          return;
-        }
         const text = rule.responseBody ?? '';
         const responseStatus = rule.statusCode ?? 200;
         this.transition(2);
@@ -405,7 +449,7 @@
         }));
         this.dispatchEvent(new ProgressEvent('loadend'));
         reportHit(rule, this.requestMethod, this.requestUrl);
-      }, willTimeout ? timeoutMs : delay);
+      }, delay);
     }
 
     private applyOverride(rule: MainRule): void {
@@ -416,10 +460,156 @@
       this.defineResponse(text, responseStatus, rule.statusCode ? '' : super.statusText, super.responseURL);
       reportHit(rule, this.requestMethod, this.requestUrl);
     }
+
+    private getNativeWithCredentials(): boolean {
+      return super.withCredentials;
+    }
+
+    private setRequestWithCredentials(value: boolean): void {
+      if ((this.readyState !== 0 && this.readyState !== 1) || this.sendStarted) {
+        throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
+      }
+      super.withCredentials = value;
+    }
+
+    private setRequestTimeout(value: number): void {
+      super.timeout = value;
+      this.requestTimeout = super.timeout;
+      if (!this.sendStarted) return;
+      if (this.nativeSendStarted) {
+        if (this.requestTimeout <= 0) {
+          super.timeout = 0;
+          return;
+        }
+        const remaining = this.remainingTimeout();
+        super.timeout = remaining > 0 ? Math.max(1, Math.ceil(remaining)) : 1;
+        return;
+      }
+      this.scheduleSyntheticTimeout(this.requestGeneration);
+    }
+
+    private remainingTimeout(): number {
+      if (this.requestTimeout <= 0) return 0;
+      return this.requestTimeout - Math.max(0, Date.now() - this.requestStartedAt);
+    }
+
+    private clearRequestTimeoutTimer(): void {
+      if (this.requestTimeoutTimer !== null) {
+        clearTimeout(this.requestTimeoutTimer);
+        this.requestTimeoutTimer = null;
+      }
+    }
+
+    private scheduleSyntheticTimeout(generation: number): void {
+      this.clearRequestTimeoutTimer();
+      if (!this.sendStarted || this.nativeSendStarted || this.requestTimeout <= 0) return;
+      const remaining = this.remainingTimeout();
+      this.requestTimeoutTimer = setTimeout(
+        () => this.handleSyntheticTimeout(generation),
+        Math.max(0, remaining)
+      );
+    }
+
+    private handleSyntheticTimeout(generation: number): void {
+      if (
+        generation !== this.requestGeneration ||
+        !this.sendStarted ||
+        this.nativeSendStarted
+      ) {
+        return;
+      }
+      this.requestGeneration += 1;
+      this.cancelSyntheticWork();
+      this.brokerPending = false;
+      this.sendStarted = false;
+      this.mockComplete = true;
+      this.mockHeaders = new Headers();
+      this.transition(4);
+      this.dispatchEvent(new ProgressEvent('timeout'));
+      this.dispatchEvent(new ProgressEvent('loadend'));
+    }
+
+    private finishBrokerRequest(
+      generation: number,
+      body: Document | XMLHttpRequestBodyInit | null | undefined,
+      matchedRule: MainRule | null
+    ): void {
+      if (
+        generation !== this.requestGeneration ||
+        !this.brokerPending ||
+        !this.sendStarted
+      ) {
+        return;
+      }
+      this.brokerPending = false;
+      this.brokerAbortController = null;
+      if (matchedRule?.type === 'mock') {
+        this.mockRule = matchedRule;
+        this.serveMock(matchedRule);
+        return;
+      }
+
+      const remaining = this.remainingTimeout();
+      if (this.requestTimeout > 0 && remaining <= 0) {
+        this.handleSyntheticTimeout(generation);
+        return;
+      }
+      this.clearRequestTimeoutTimer();
+      this.overrideRule = matchedRule?.type === 'responseOverride' ? matchedRule : null;
+      if (this.requestTimeout > 0) {
+        super.timeout = Math.max(1, Math.ceil(remaining));
+      }
+      this.nativeSendStarted = true;
+      try {
+        super.send(body);
+      } catch (error) {
+        this.nativeSendStarted = false;
+        this.sendStarted = false;
+        throw error;
+      }
+    }
+
+    private cancelSyntheticWork(): void {
+      this.brokerAbortController?.abort();
+      this.brokerAbortController = null;
+      this.clearRequestTimeoutTimer();
+      if (this.mockTimer !== null) {
+        clearTimeout(this.mockTimer);
+        this.mockTimer = null;
+      }
+    }
+
+    private dispatchSyntheticAbort(): void {
+      super.abort();
+      this.mockReadyState = 4;
+      Object.defineProperty(this, 'readyState', {
+        configurable: true,
+        get: () => this.mockReadyState,
+      });
+      this.dispatchEvent(new ProgressEvent('readystatechange'));
+      this.dispatchEvent(new ProgressEvent('abort'));
+      this.dispatchEvent(new ProgressEvent('loadend'));
+      this.mockReadyState = 0;
+    }
+
+    private clearSyntheticProperties(): void {
+      for (const property of [
+        'readyState',
+        'status',
+        'statusText',
+        'response',
+        'responseText',
+        'responseURL',
+      ]) {
+        Reflect.deleteProperty(this, property);
+      }
+    }
   }
 
   window.XMLHttpRequest = RequestPilotXHR;
 
+  // The host page can observe and forge window messages. Channel and request-ID
+  // checks reject unrelated traffic but are correlation checks, not secrets.
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data as Record<string, unknown> | null;
@@ -436,6 +626,7 @@
     const payload = data.payload;
     if (data.type === 'STATUS') {
       if (
+        payload.readyId !== readyId ||
         typeof payload.extensionEnabled !== 'boolean' ||
         typeof payload.hasRules !== 'boolean'
       ) {
@@ -457,5 +648,9 @@
     settleMatch(payload.requestId, asMainRule(payload.rule));
   });
 
-  window.postMessage({ source: 'requestpilot-main', type: 'READY' }, '*');
+  window.postMessage({
+    source: 'requestpilot-main',
+    type: 'READY',
+    payload: { readyId },
+  }, '*');
 })();

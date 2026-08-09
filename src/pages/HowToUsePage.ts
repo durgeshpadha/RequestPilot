@@ -354,13 +354,14 @@ const SECTION_EXPECTATIONS = `
 
   <h3 class="htu-h3">Mock API / Response Override Rules</h3>
   <div class="htu-steps">
-    ${step(1, 'Content scripts are injected', 'An isolated extension bridge keeps validated configuration private, while a minimal main-world interceptor wraps fetch/XHR at document_start.')}
+    ${step(1, 'Content scripts are injected', 'An isolated extension bridge retains the complete validated configuration, while a minimal main-world interceptor wraps fetch/XHR at document_start.')}
     ${step(2, 'Concrete request is checked', 'For each fetch or asynchronous XHR call, the interceptor sends only that request URL and method to the isolated bridge.')}
     ${step(3, 'Matching response data is returned', 'The bridge checks rules by priority and returns only the response data for the first rule that matches that concrete request.')}
     ${step(4, 'Mock: synthetic response returned', 'For Mock API rules, the real network request is never made. A Response object with your configured body, status, and headers is returned directly.')}
     ${step(5, 'Override: real request + replaced body', 'For Response Override rules, the real request is made, and the response body is replaced after it arrives.')}
   </div>
 
+  ${callout('warn', Icons.alertTriangle({ size: 16 }), '<strong>Mock payloads are page-visible:</strong> the request-scoped bridge uses window.postMessage, which page scripts can observe or forge. It reduces bulk configuration exposure but is not a security boundary. Never place passwords, access tokens, or other secrets in environment variables used by mock or response-override payloads.')}
   ${callout('info', Icons.info({ size: 16 }), '<strong>Rule changes take effect immediately</strong> for new requests. Any request already in-flight when you save a rule will not be affected. Reload the page to ensure a fresh request goes through the new rules.')}
   ${callout('warn', Icons.alertTriangle({ size: 16 }), '<strong>DevTools Network tab:</strong> a Mock API rule prevents the real request, so no corresponding network entry appears. A Response Override still makes the request, and DevTools shows the server’s original response; page JavaScript receives the overridden body. Use RequestPilot History or your application code to verify the applied rule.')}
 </section>`;

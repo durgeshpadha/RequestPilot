@@ -34,7 +34,14 @@
     variables: Array<{ key: string; value: string }>;
   }
 
-  const channel = crypto.randomUUID();
+  function createMessageId(): string {
+    const random = new Uint32Array(4);
+    crypto.getRandomValues(random);
+    return Array.from(random, (part) => part.toString(16).padStart(8, '0')).join('');
+  }
+
+  const channel = createMessageId();
+  let readyId = '';
   let extensionEnabled = false;
   let rules: BridgeRule[] = [];
 
@@ -133,6 +140,14 @@
   }
 
   function payloadFor(rule: BridgeRule): MainRulePayload {
+    if (rule.type === 'responseOverride') {
+      return {
+        id: rule.id,
+        type: rule.type,
+        ...(rule.statusCode !== undefined ? { statusCode: rule.statusCode } : {}),
+        ...(rule.body !== undefined ? { body: rule.body } : {}),
+      };
+    }
     return {
       id: rule.id,
       type: rule.type,
@@ -140,16 +155,17 @@
       ...(rule.responseBody !== undefined ? { responseBody: rule.responseBody } : {}),
       ...(rule.responseHeaders !== undefined ? { responseHeaders: rule.responseHeaders } : {}),
       ...(rule.delay !== undefined ? { delay: rule.delay } : {}),
-      ...(rule.body !== undefined ? { body: rule.body } : {}),
     };
   }
 
   function publishStatus(): void {
+    if (!readyId) return;
     window.postMessage({
       source: 'requestpilot-isolated',
       type: 'STATUS',
       channel,
       payload: {
+        readyId,
         extensionEnabled,
         hasRules: rules.length > 0,
       },
@@ -190,12 +206,17 @@
     publishStatus();
   }
 
+  // Page-world messaging is observable and forgeable. Keep every payload
+  // request-scoped, validate its shape, and never treat this transport as a
+  // confidentiality or authentication boundary.
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data as Record<string, unknown> | null;
     if (!data || data.source !== 'requestpilot-main') return;
 
     if (data.type === 'READY') {
+      if (!isRecord(data.payload) || typeof data.payload.readyId !== 'string') return;
+      readyId = data.payload.readyId;
       publishStatus();
       return;
     }
