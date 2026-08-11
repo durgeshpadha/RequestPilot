@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RequestPilot",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Create and manage HTTP header, redirect, query, cookie, API mock, and response rules.",
   "permissions": [
     "storage",
