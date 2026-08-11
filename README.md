@@ -105,6 +105,8 @@ These use a two-part content-script architecture. An isolated-world bridge retai
 
 The bridge uses the page's `window.postMessage` bus, which page scripts can observe and forge. Matched mock/override payloads are therefore page-visible and the request-scoped protocol is a data-minimization measure, not an authentication or confidentiality boundary. Do not store passwords, access tokens, or other secrets in environment variables used by mock or response-override payloads.
 
+Asynchronous XHR matching finishes before the browser's native `send()` begins. Request-state errors are checked synchronously, but a browser exception raised only by that deferred native call cannot be thrown back into the page's original `xhr.send()` stack. RequestPilot logs that exception and emits XHR `error` and `loadend` events instead of producing an unhandled Promise rejection.
+
 ### Environment Variables
 Use `{{KEY}}` placeholders in any rule field. The active environment's variables are resolved before rules are applied. Switch environments from the popup or the Environments page.
 

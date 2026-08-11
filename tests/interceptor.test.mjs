@@ -20,8 +20,10 @@ class FakeXMLHttpRequest extends EventTarget {
   statusText = '';
   responseURL = '';
   responseType = '';
+  nativeSendAttempts = 0;
   nativeSendCalls = 0;
   nativeTimeoutAtSend = null;
+  nativeSendError = null;
   requestHeaders = [];
   _nativeTimeout = 0;
   _nativeWithCredentials = false;
@@ -55,6 +57,8 @@ class FakeXMLHttpRequest extends EventTarget {
     if (this.readyState !== 1 || this._sendFlag) {
       throw new DOMException('The object is in an invalid state.', 'InvalidStateError');
     }
+    this.nativeSendAttempts += 1;
+    if (this.nativeSendError) throw this.nativeSendError;
     this._sendFlag = true;
     this.nativeSendCalls += 1;
     this.nativeTimeoutAtSend = this._nativeTimeout;
@@ -98,6 +102,7 @@ function installInterceptor({ onMatchRequest } = {}) {
   const source = fs.readFileSync(path.join(root, 'dist/content/interceptor.js'), 'utf8');
   const messageListeners = [];
   const postedMessages = [];
+  const consoleErrors = [];
   let nativeFetchCalls = 0;
 
   const windowObject = {
@@ -125,6 +130,8 @@ function installInterceptor({ onMatchRequest } = {}) {
   }
 
   const crypto = insecureContextCrypto();
+  const testConsole = Object.create(console);
+  testConsole.error = (...args) => consoleErrors.push(args);
   const context = vm.createContext({
     window: windowObject,
     location: { href: 'http://app.example.com/' },
@@ -140,7 +147,7 @@ function installInterceptor({ onMatchRequest } = {}) {
     AbortSignal,
     ProgressEvent: FakeProgressEvent,
     crypto,
-    console,
+    console: testConsole,
     setTimeout,
     clearTimeout,
     queueMicrotask,
@@ -150,6 +157,7 @@ function installInterceptor({ onMatchRequest } = {}) {
   return {
     windowObject,
     postedMessages,
+    consoleErrors,
     dispatch,
     activate(channel = 'test-channel') {
       const ready = postedMessages.find((message) => message.type === 'READY');
@@ -343,4 +351,45 @@ test('XHR passes only the remaining timeout budget to native send', async () => 
   assert.ok(request.nativeTimeoutAtSend < 200);
   assert.equal(request.timeout, 200);
   request.abort();
+});
+
+test('XHR reports a deferred native send failure without an unhandled rejection', async () => {
+  const harness = installInterceptor({
+    onMatchRequest(message, dispatch) {
+      dispatch(matchResponse(message, null));
+    },
+  });
+  harness.activate();
+  const request = new harness.windowObject.XMLHttpRequest();
+  const events = [];
+  const unhandledRejections = [];
+  const onUnhandledRejection = (error) => unhandledRejections.push(error);
+  process.on('unhandledRejection', onUnhandledRejection);
+
+  try {
+    request.open('POST', 'http://api.example.com/users');
+    request.nativeSendError = new DOMException('Native send failed.', 'NetworkError');
+    request.addEventListener('readystatechange', () => events.push('readystatechange'));
+    request.addEventListener('error', () => events.push('error'));
+    const loadend = new Promise((resolve) => {
+      request.addEventListener('loadend', () => {
+        events.push('loadend');
+        resolve();
+      }, { once: true });
+    });
+
+    assert.doesNotThrow(() => request.send('body'));
+    await loadend;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(request.nativeSendAttempts, 1);
+    assert.equal(request.nativeSendCalls, 0);
+    assert.equal(request.readyState, 4);
+    assert.deepEqual(events, ['readystatechange', 'error', 'loadend']);
+    assert.deepEqual(unhandledRejections, []);
+    assert.equal(harness.consoleErrors.length, 1);
+    assert.match(harness.consoleErrors[0][0], /native XMLHttpRequest\.send failed/i);
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandledRejection);
+  }
 });

@@ -362,6 +362,7 @@ const SECTION_EXPECTATIONS = `
   </div>
 
   ${callout('warn', Icons.alertTriangle({ size: 16 }), '<strong>Mock payloads are page-visible:</strong> the request-scoped bridge uses window.postMessage, which page scripts can observe or forge. It reduces bulk configuration exposure but is not a security boundary. Never place passwords, access tokens, or other secrets in environment variables used by mock or response-override payloads.')}
+  ${callout('info', Icons.info({ size: 16 }), '<strong>Asynchronous XHR limitation:</strong> request-state errors still throw from xhr.send(), but an exception raised only when the broker later starts the native request cannot return to that original call stack. RequestPilot reports it through XHR error and loadend events and logs the underlying exception.')}
   ${callout('info', Icons.info({ size: 16 }), '<strong>Rule changes take effect immediately</strong> for new requests. Any request already in-flight when you save a rule will not be affected. Reload the page to ensure a fresh request goes through the new rules.')}
   ${callout('warn', Icons.alertTriangle({ size: 16 }), '<strong>DevTools Network tab:</strong> a Mock API rule prevents the real request, so no corresponding network entry appears. A Response Override still makes the request, and DevTools shows the server’s original response; page JavaScript receives the overridden body. Use RequestPilot History or your application code to verify the applied rule.')}
 </section>`;

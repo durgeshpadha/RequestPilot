@@ -563,10 +563,23 @@
       try {
         super.send(body);
       } catch (error) {
-        this.nativeSendStarted = false;
-        this.sendStarted = false;
-        throw error;
+        this.handleDeferredNativeSendError(error);
       }
+    }
+
+    private handleDeferredNativeSendError(error: unknown): void {
+      console.error(
+        '[RequestPilot] Native XMLHttpRequest.send failed after asynchronous rule matching:',
+        error
+      );
+      this.nativeSendStarted = false;
+      this.sendStarted = false;
+      this.overrideRule = null;
+      this.mockComplete = true;
+      this.mockHeaders = new Headers();
+      this.transition(4);
+      this.dispatchEvent(new ProgressEvent('error'));
+      this.dispatchEvent(new ProgressEvent('loadend'));
     }
 
     private cancelSyntheticWork(): void {
