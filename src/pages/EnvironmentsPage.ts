@@ -1,6 +1,7 @@
 import type { Environment, EnvironmentVariable } from '../models/types.js';
 import { Icons } from '../utils/icons.js';
 import { generateId, escapeHtml } from '../utils/helpers.js';
+import { bindEnvironmentCreationButtons } from '../utils/eventBindings.js';
 import { showConfirm, showPrompt } from '../components/Modal.js';
 import { toast } from '../components/Toast.js';
 
@@ -49,8 +50,8 @@ export function renderEnvironmentsPage(opts: EnvPageOptions): HTMLElement {
       });
     });
 
-    // Add environment
-    el.querySelector('#btn-add-env')?.addEventListener('click', async () => {
+    // Add environment from either the sidebar shortcut or the empty state.
+    bindEnvironmentCreationButtons(el, async () => {
       const name = await showPrompt('New Environment', 'Environment name');
       if (!name) return;
       const newEnv: Environment = { id: generateId(), name, variables: [], isActive: envs.length === 0 };
@@ -146,7 +147,7 @@ function buildHtml(envs: Environment[], selectedId: string | null): string {
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-3)">
           <span style="font-size:var(--text-sm);font-weight:var(--font-semibold);color:var(--color-text-secondary)">ENVIRONMENTS</span>
-          <button class="btn btn-ghost btn-icon btn-sm" id="btn-add-env" data-tooltip="New Environment">${Icons.plus({ size: 14 })}</button>
+          <button class="btn btn-ghost btn-icon btn-sm" data-add-env data-tooltip="New Environment">${Icons.plus({ size: 14 })}</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px">
           ${envs.map((e) => `
@@ -210,7 +211,7 @@ function buildHtml(envs: Environment[], selectedId: string | null): string {
             <div class="empty-state-icon">${Icons.environment({ size: 28 })}</div>
             <h3 class="empty-state-title">No Environment Selected</h3>
             <p class="empty-state-desc">Select an environment from the sidebar or create a new one.</p>
-            <button class="btn btn-primary" id="btn-add-env">${Icons.plus({ size: 14 })} New Environment</button>
+            <button class="btn btn-primary" data-add-env>${Icons.plus({ size: 14 })} New Environment</button>
           </div>
         `}
       </div>
