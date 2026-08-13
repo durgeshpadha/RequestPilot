@@ -33,6 +33,13 @@ test('main-world interceptor contains no extension API calls', () => {
   assert.doesNotMatch(source, /\bchrome\./);
 });
 
+test('isolated bridge does not broadcast complete rule configuration', () => {
+  const source = fs.readFileSync(path.join(root, 'dist/content/bridge.js'), 'utf8');
+  assert.doesNotMatch(source, /type:\s*['"]CONFIG['"]/);
+  assert.match(source, /data\.type\s*===\s*['"]MATCH_REQUEST['"]/);
+  assert.match(source, /type:\s*['"]MATCH_RESPONSE['"]/);
+});
+
 test('manifest uses least-privilege implemented permissions', () => {
   assert.deepEqual(
     [...manifest.permissions].sort(),

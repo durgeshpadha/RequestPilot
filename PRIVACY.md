@@ -30,7 +30,9 @@ Exported JSON files are created only after a user action and remain under the us
 
 ## Security
 
-Extension API access remains in isolated extension contexts. The main-world script used for fetch/XMLHttpRequest mocking receives only the enabled mock and response-override configuration needed on that page.
+Extension API access and the bulk rule configuration remain in isolated extension contexts. The main-world script used for fetch/XMLHttpRequest mocking submits one concrete URL/method check at a time and receives response data only when that request matches an enabled mock or response-override rule.
+
+This request broker communicates over `window.postMessage`. Scripts running on the page can observe or forge those messages, including the response data returned for a matched request. The broker reduces bulk exposure but is not an authentication or confidentiality boundary. Environment variables referenced by mock or response-override payloads must not be used to store passwords, access tokens, or other secrets.
 
 ## Contact
 
