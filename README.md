@@ -1,6 +1,6 @@
 # RequestPilot
 
-A Microsoft Edge (Chromium) browser extension for intercepting and modifying HTTP requests and responses in real time — built with TypeScript and Manifest V3.
+A Chromium browser extension for Google Chrome and Microsoft Edge that intercepts and modifies HTTP requests and responses in real time — built with TypeScript and Manifest V3.
 
 ![RequestPilot](assets/logo/request_pilot_logo.png)
 
@@ -24,7 +24,7 @@ A Microsoft Edge (Chromium) browser extension for intercepting and modifying HTT
 
 ## Installation (Developer / Unpacked)
 
-> The extension is not yet published to the Edge Add-ons store. Load it manually:
+> The extension is not yet published to the Chrome Web Store or Edge Add-ons. Load it manually:
 
 1. Clone the repository
    ```bash
@@ -38,8 +38,8 @@ A Microsoft Edge (Chromium) browser extension for intercepting and modifying HTT
    npm run build
    ```
 
-3. Load in Microsoft Edge
-   - Open `edge://extensions/`
+3. Load in Chrome or Microsoft Edge
+   - Open `chrome://extensions/` in Chrome or `edge://extensions/` in Edge
    - Enable **Developer mode** (toggle, top-right)
    - Click **Load unpacked**
    - Select the `RequestPilot` folder (the root — where `manifest.json` lives)
@@ -64,7 +64,7 @@ npm run check
 npm run package
 ```
 
-After any change, go to `edge://extensions/` and click the **reload** icon on the RequestPilot card.
+After any change, go to `chrome://extensions/` or `edge://extensions/` and click the **reload** icon on the RequestPilot card.
 
 ### Project Structure
 

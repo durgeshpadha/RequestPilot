@@ -1,8 +1,12 @@
 # RequestPilot Privacy Policy
 
-Last updated: July 23, 2026
+Last updated: August 13, 2026
 
-RequestPilot is a browser-extension development tool that applies request rules created by the user.
+RequestPilot is a Chrome and Edge browser-extension development tool that applies request rules created by the user.
+
+## Prominent data-use disclosure
+
+When an enabled user-created rule matches a request, RequestPilot processes the request URL and HTTP method and, when history is enabled, stores that match locally so the user can review rule activity. RequestPilot also processes user-entered rules, headers, cookies, environment variables, mock responses, and response overrides solely to apply the features the user configures. This information is not sent to the developer or to third parties.
 
 ## Data processed
 
@@ -21,6 +25,10 @@ RequestPilot does not sell, transmit, or share browsing data, request history, r
 
 Exported JSON files are created only after a user action and remain under the user's control. Users should review exported environment variables before sharing a file with teammates.
 
+## Chrome Web Store Limited Use
+
+RequestPilot's use of information received through Chrome extension APIs complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. The information is used only to provide RequestPilot's disclosed request-rule and API-testing features. It is not used for advertising, profiling, credit decisions, or any unrelated purpose, and the developer does not permit humans to read it.
+
 ## Permissions
 
 - `storage` stores extension configuration and history.
@@ -36,4 +44,4 @@ This request broker communicates over `window.postMessage`. Scripts running on t
 
 ## Contact
 
-For privacy questions, open an issue in the RequestPilot source repository or use the support contact listed in the browser-store listing.
+For privacy questions, open an issue at https://github.com/vishnoiakash/RequestPilot/issues or use the support contact listed in the browser-store listing.

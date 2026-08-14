@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RequestPilot Store Preview</title>
+  <link rel="stylesheet" href="../dist/assets/css/design-system.css" />
+  <link rel="stylesheet" href="../dist/assets/css/layout.css" />
+  <link rel="stylesheet" href="../dist/assets/css/components.css" />
+  <style>
+    html, body, .app-shell { min-height: 800px; }
+  </style>
+  <script>
+    (() => {
+      const now = Date.now();
+      const iso = (minutesAgo) => new Date(now - minutesAgo * 60_000).toISOString();
+      const matcher = (pattern, methods = ['GET']) => ({
+        pattern,
+        isRegex: false,
+        resourceTypes: ['xmlhttprequest'],
+        httpMethods: methods,
+      });
+      const rules = [
+        {
+          id: 'header-auth', name: 'Add development client header', type: 'header',
+          enabled: true, createdAt: iso(1440), updatedAt: iso(35), priority: 10,
+          description: 'Identify requests from the local development client.',
+          group: 'Development', tags: ['api', 'headers'], environmentIds: ['env-dev'],
+          urlMatcher: matcher('https://api.example.dev/*', ['GET', 'POST']),
+          target: 'request', headers: [{ name: 'X-Dev-Client', value: 'RequestPilot', operation: 'set' }],
+        },
+        {
+          id: 'header-cache', name: 'Disable API caching', type: 'header',
+          enabled: true, createdAt: iso(1320), updatedAt: iso(64), priority: 20,
+          group: 'Development', tags: ['cache'], environmentIds: ['env-dev'],
+          urlMatcher: matcher('https://api.example.dev/*'), target: 'response',
+          headers: [{ name: 'Cache-Control', value: 'no-store', operation: 'set' }],
+        },
+        {
+          id: 'mock-profile', name: 'Mock profile success', type: 'mock',
+          enabled: true, createdAt: iso(980), updatedAt: iso(18), priority: 30,
+          group: 'Account flow', tags: ['mock', 'happy-path'], environmentIds: ['env-dev'],
+          urlMatcher: matcher('https://api.example.dev/v1/profile'), statusCode: 200,
+          responseBody: '{"id":"user_demo","plan":"team"}',
+          responseHeaders: [{ name: 'Content-Type', value: 'application/json', operation: 'set' }], delay: 180,
+        },
+        {
+          id: 'redirect-assets', name: 'Use local asset server', type: 'redirect',
+          enabled: true, createdAt: iso(850), updatedAt: iso(120), priority: 40,
+          group: 'Local stack', tags: ['assets'], environmentIds: ['env-dev'],
+          urlMatcher: matcher('https://cdn.example.dev/*'), redirectUrl: 'http://localhost:4173/\\1',
+        },
+        {
+          id: 'query-debug', name: 'Enable API debug mode', type: 'queryParam',
+          enabled: false, createdAt: iso(620), updatedAt: iso(190), priority: 50,
+          group: 'Diagnostics', tags: ['debug'],
+          urlMatcher: matcher('https://api.example.dev/*'),
+          params: [{ key: 'debug', value: 'true', operation: 'set' }],
+        },
+        {
+          id: 'cookie-locale', name: 'Force test locale', type: 'cookie',
+          enabled: true, createdAt: iso(480), updatedAt: iso(75), priority: 60,
+          group: 'Localization', tags: ['locale'], environmentIds: ['env-dev'],
+          urlMatcher: matcher('https://app.example.dev/*'),
+          cookies: [{ name: 'demo_locale', value: 'en-IN', operation: 'set' }],
+        },
+      ];
+      const environments = [
+        {
+          id: 'env-dev', name: 'Development', isActive: true,
+          variables: [
+            { key: 'BASE_URL', value: 'https://api.example.dev', description: 'Local development API' },
+            { key: 'CLIENT_ID', value: 'requestpilot-demo', description: 'Fictional client identifier' },
+            { key: 'AUTH_TOKEN', value: 'demo-token-not-real', description: 'Masked example value', isSecret: true },
+          ],
+        },
+        {
+          id: 'env-staging', name: 'Staging', isActive: false,
+          variables: [
+            { key: 'BASE_URL', value: 'https://staging.example.dev', description: 'Staging API' },
+          ],
+        },
+        { id: 'env-prod', name: 'Production', isActive: false, variables: [] },
+      ];
+      const history = [
+        ['hist-1', 2, 'GET', 'https://api.example.dev/v1/profile?session=%5BREDACTED%5D', 'Mock profile success', 'mock-profile', 'mock', 'Mocked response'],
+        ['hist-2', 8, 'POST', 'https://api.example.dev/v1/events', 'Add development client header', 'header-auth', 'header', 'Set X-Dev-Client'],
+        ['hist-3', 16, 'GET', 'https://cdn.example.dev/app.css', 'Use local asset server', 'redirect-assets', 'redirect', 'Redirected request'],
+        ['hist-4', 27, 'GET', 'https://api.example.dev/v1/projects?token=%5BREDACTED%5D', 'Disable API caching', 'header-cache', 'header', 'Set Cache-Control'],
+        ['hist-5', 43, 'GET', 'https://app.example.dev/dashboard', 'Force test locale', 'cookie-locale', 'cookie', 'Set demo_locale'],
+      ].map(([id, minutes, method, url, ruleName, ruleId, ruleType, modificationType]) => ({
+        id, timestamp: iso(minutes), method, url, ruleName, ruleId, ruleType,
+        modificationType, status: 'applied',
+      }));
+      const localData = {
+        requestpilot_initialized: true,
+        requestpilot_schema_version: 4,
+        requestpilot_rules: rules,
+        requestpilot_environments: environments,
+        requestpilot_history: history,
+        requestpilot_usage: {
+          'header-auth': 184, 'header-cache': 129, 'mock-profile': 76,
+          'redirect-assets': 51, 'query-debug': 12, 'cookie-locale': 34,
+        },
+      };
+      const syncData = {
+        requestpilot_settings: {
+          theme: 'light', defaultEnvironmentId: 'env-dev', autoBackup: true,
+          extensionEnabled: true, historyEnabled: true, redactSensitiveData: true, historyLimit: 500,
+        },
+      };
+      const listeners = [];
+      const select = (store, keys) => {
+        if (keys == null) return { ...store };
+        if (typeof keys === 'string') return { [keys]: store[keys] };
+        if (Array.isArray(keys)) return Object.fromEntries(keys.map((key) => [key, store[key]]));
+        return Object.fromEntries(Object.keys(keys).map((key) => [key, store[key] ?? keys[key]]));
+      };
+      const area = (store, areaName) => ({
+        get: async (keys) => select(store, keys),
+        set: async (values) => {
+          const changes = {};
+          Object.entries(values).forEach(([key, value]) => {
+            changes[key] = { oldValue: store[key], newValue: value };
+            store[key] = value;
+          });
+          listeners.forEach((listener) => listener(changes, areaName));
+        },
+        clear: async () => Object.keys(store).forEach((key) => delete store[key]),
+      });
+      Object.assign(globalThis.chrome ?? (globalThis.chrome = {}), {
+        storage: {
+          local: area(localData, 'local'),
+          sync: area(syncData, 'sync'),
+          onChanged: { addListener: (listener) => listeners.push(listener) },
+        },
+        runtime: {
+          getManifest: () => ({ version: '1.2.3' }),
+          sendMessage: async () => ({ ok: true, errors: [] }),
+        },
+      });
+    })();
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
+      <div class="sidebar-logo">
+        <div class="sidebar-logo-icon" aria-hidden="true">
+          <img src="../assets/logo/request_pilot_logo.png" alt="RequestPilot" width="22" height="22" style="object-fit:contain;border-radius:4px;" />
+        </div>
+        <div class="sidebar-logo-text">
+          <span class="sidebar-logo-name">RequestPilot</span>
+          <span class="sidebar-logo-tagline">HTTP Rule Manager</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebar-nav" aria-label="Pages"></nav>
+      <div class="sidebar-footer" id="sidebar-footer"></div>
+    </aside>
+    <div class="main-content" role="main">
+      <header class="page-header">
+        <div class="page-header-left">
+          <h1 class="page-title" id="page-title">Dashboard</h1>
+          <p class="page-subtitle" id="page-subtitle">Overview of your rules and recent activity</p>
+        </div>
+        <div class="page-header-actions" id="page-header-actions" role="toolbar" aria-label="Page actions"></div>
+      </header>
+      <div class="page-body" id="main-content"></div>
+    </div>
+  </div>
+  <script type="module" src="../dist/options/app.js"></script>
+</body>
+</html>
