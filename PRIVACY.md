@@ -1,8 +1,12 @@
 # RequestPilot Privacy Policy
 
-Last updated: July 23, 2026
+Last updated: August 13, 2026
 
-RequestPilot is a browser-extension development tool that applies request rules created by the user.
+RequestPilot is a Chrome and Edge browser-extension development tool that applies request rules created by the user.
+
+## Prominent data-use disclosure
+
+When an enabled user-created rule matches a request, RequestPilot processes the request URL and HTTP method and, when history is enabled, stores that match locally so the user can review rule activity. RequestPilot also processes user-entered rules, headers, cookies, environment variables, mock responses, and response overrides solely to apply the features the user configures. RequestPilot does not send configuration or history to the developer, a publisher backend, analytics, or advertising services. When the user enables a rule that changes an outgoing request, its configured header, cookie, query-parameter, redirect, or resolved environment-variable values may be sent to the destination website selected by that rule.
 
 ## Data processed
 
@@ -17,9 +21,13 @@ RequestPilot may process request URLs, HTTP methods, configured headers, mock re
 
 ## Data sharing
 
-RequestPilot does not sell, transmit, or share browsing data, request history, rules, environment variables, or credentials with the developer or third parties. The extension has no analytics, advertising, telemetry, or remote backend.
+RequestPilot does not sell or share browsing data, request history, rules, environment variables, or credentials with the developer, data brokers, analytics, or advertising services. The extension has no analytics, advertising, telemetry, or remote backend. Configuration and history remain in browser extension storage unless the user explicitly exports them. Values used by an enabled outgoing-request rule may be transmitted to its user-selected destination website as necessary to perform that rule.
 
 Exported JSON files are created only after a user action and remain under the user's control. Users should review exported environment variables before sharing a file with teammates.
+
+## Chrome Web Store Limited Use
+
+RequestPilot's use of information received through Chrome extension APIs complies with the Chrome Web Store User Data Policy, including the Limited Use requirements. The information is used only to provide RequestPilot's disclosed request-rule and API-testing features. It is not used for advertising, profiling, credit decisions, or any unrelated purpose, and the developer does not permit humans to read it.
 
 ## Permissions
 
@@ -36,4 +44,4 @@ This request broker communicates over `window.postMessage`. Scripts running on t
 
 ## Contact
 
-For privacy questions, open an issue in the RequestPilot source repository or use the support contact listed in the browser-store listing.
+For privacy questions, open an issue at https://github.com/vishnoiakash/RequestPilot/issues or use the support contact listed in the browser-store listing.

@@ -47,3 +47,22 @@ test('manifest uses least-privilege implemented permissions', () => {
   );
   assert.equal('web_accessible_resources' in manifest, false);
 });
+
+test('Chrome Web Store screenshots use the required 1280 by 800 JPEG format', () => {
+  const screenshots = [
+    'chrome-dashboard-1280x800.jpg',
+    'chrome-header-rules-1280x800.jpg',
+    'chrome-rule-editor-1280x800.jpg',
+    'chrome-environments-1280x800.jpg',
+    'chrome-history-1280x800.jpg',
+  ];
+
+  screenshots.forEach((name) => {
+    const file = fs.readFileSync(path.join(root, 'store-assets', name));
+    assert.deepEqual([...file.subarray(0, 3)], [255, 216, 255], `${name} must be a JPEG`);
+    const sof = file.indexOf(Buffer.from([255, 192]));
+    assert.notEqual(sof, -1, `${name} must contain a baseline JPEG frame`);
+    assert.equal(file.readUInt16BE(sof + 5), 800, `${name} must be 800 pixels high`);
+    assert.equal(file.readUInt16BE(sof + 7), 1280, `${name} must be 1280 pixels wide`);
+  });
+});

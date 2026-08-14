@@ -1,7 +1,8 @@
-# Store Submission Checklist
+# Browser Store Submission Checklist
 
-Paste-ready listing, privacy, permission, and certification text is available in
-`EDGE_STORE_LISTING.md`. Store artwork is generated in `store-assets/`.
+Paste-ready Chrome listing, privacy, permission, and reviewer text is available in
+`CHROME_STORE_LISTING.md`. Edge-specific copy remains in `EDGE_STORE_LISTING.md`.
+Store artwork is generated in `store-assets/`.
 
 ## Before packaging
 
@@ -9,7 +10,7 @@ Paste-ready listing, privacy, permission, and certification text is available in
 2. Run `npm run package`.
 3. Run `powershell -ExecutionPolicy Bypass -File scripts/generate-store-assets.ps1`.
 4. Load the generated ZIP's extracted contents as an unpacked extension and complete the manual checks below.
-5. Capture real 1280 × 800 screenshots listed in `EDGE_STORE_LISTING.md`.
+5. Capture at least one real 1280 × 800 screenshot (up to five) listed in `CHROME_STORE_LISTING.md`.
 6. Host `PRIVACY.md` at a public HTTPS URL and use that URL in the store privacy field.
 7. Replace the support-contact placeholder in the privacy policy with the final support channel.
 
@@ -35,6 +36,8 @@ Paste-ready listing, privacy, permission, and certification text is available in
 - Data sale or third-party sharing: none.
 - Host access rationale: users can create rules for arbitrary development endpoints.
 - `webRequest` rationale: read-only local match history in packaged builds.
+- Chrome data disclosure: request URLs/methods and user-entered configuration are processed locally only for enabled request rules and optional match history.
+- Limited Use: certify only while the behavior remains consistent with `PRIVACY.md` and `CHROME_STORE_LISTING.md`.
 
 ## Release artifact
 
