@@ -24,7 +24,7 @@ A Chromium browser extension for Google Chrome and Microsoft Edge that intercept
 
 ## Installation (Developer / Unpacked)
 
-> The extension is not yet published to the Chrome Web Store or Edge Add-ons. Load it manually:
+> RequestPilot is available through Microsoft Edge Add-ons and is being prepared for the Chrome Web Store. For local development, load it manually:
 
 1. Clone the repository
    ```bash

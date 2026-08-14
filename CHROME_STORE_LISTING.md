@@ -25,7 +25,7 @@ RequestPilot is a network request and API testing tool for developers, QA engine
 
 Organize rules with groups and tags, select HTTP methods and resource types, set priorities, and test URL matchers before enabling a rule. Environment variables make it easy to reuse rules across development, staging, and production configurations. Rule sets can be imported or exported as JSON for team collaboration.
 
-Privacy disclosure: when an enabled user-created rule matches a request, RequestPilot processes its URL and HTTP method. If local history is enabled, the match is stored in the extension's private browser storage so the user can review rule activity. User-entered rules, headers, cookies, variables, and mock or override bodies are processed only to apply configured features. RequestPilot does not send this information to the developer or third parties.
+Privacy disclosure: when an enabled user-created rule matches a request, RequestPilot processes its URL and HTTP method. If local history is enabled, the match is stored in the extension's private browser storage so the user can review rule activity. User-entered rules, headers, cookies, variables, and mock or override bodies are processed only to apply configured features. RequestPilot does not send configuration or history to the developer, a publisher backend, analytics, or advertising services. When the user enables a rule that changes an outgoing request, its configured header, cookie, query-parameter, redirect, or resolved environment-variable values may be sent to the destination website selected by that rule.
 
 RequestPilot has no analytics, advertising, telemetry, remote backend, or remotely hosted executable code. Users can disable or clear history, configure sensitive-query redaction and retention, and reset all extension data.
 
@@ -82,7 +82,7 @@ Select **No, I am not using remote code**. All executable JavaScript is included
 Chrome considers locally processed information to be handled data. Select every dashboard category that corresponds to the behavior of the uploaded version. For version 1.2.3, disclose at least:
 
 - **Web history / browsing activity** — request URLs and HTTP methods for requests matched by enabled user-created rules; retained locally only when history is enabled.
-- **Authentication information** — user-entered header, cookie, or environment-variable values may contain authentication values and are processed locally to apply configured rules.
+- **Authentication information** — user-entered header, cookie, or environment-variable values may contain authentication values. They are processed to apply configured rules and may be included in requests to the destination websites explicitly selected by the user.
 - **Website content** — user-entered mock response and response-override bodies are processed locally to return the configured content.
 - **User-provided content** or the closest available category — rule definitions, environments, tags, and descriptions created by the user.
 
@@ -95,7 +95,7 @@ For every disclosed category, state:
 - Not used or transferred for purposes unrelated to the item's single purpose.
 - Not used or transferred for creditworthiness or lending.
 - Not used for personalized advertising.
-- Not transmitted to the developer or third parties; it remains in Chrome extension storage unless the user explicitly exports a JSON file.
+- Not transmitted to the developer, a publisher backend, analytics, or advertising services. Configuration and history remain in Chrome extension storage unless the user explicitly exports a JSON file; values used by an enabled outgoing-request rule may be sent to its user-selected destination website as necessary to perform that rule.
 
 Certify compliance with the Chrome Web Store User Data Policy and Limited Use requirements only while the uploaded package, store answers, and public privacy policy remain consistent.
 
